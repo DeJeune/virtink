@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -41,6 +42,11 @@ var _ = BeforeSuite(func() {
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "deploy", "crd")},
 		ErrorIfCRDPathMissing: true,
+		ControlPlane: envtest.ControlPlane{
+			APIServer: &envtest.APIServer{
+				StartTimeout: time.Minute,
+			},
+		},
 	}
 
 	var err error
@@ -56,7 +62,9 @@ var _ = BeforeSuite(func() {
 	Expect(k8sClient).NotTo(BeNil())
 
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: scheme.Scheme,
+		Scheme:           scheme.Scheme,
+		LeaderElection:   false,
+		LeaderElectionID: "virtink-test-leader-election",
 	})
 	Expect(err).ToNot(HaveOccurred())
 
@@ -65,6 +73,13 @@ var _ = BeforeSuite(func() {
 		Scheme:             k8sManager.GetScheme(),
 		Recorder:           k8sManager.GetEventRecorderFor("virt-controller"),
 		PrerunnerImageName: "prerunner",
+	}).SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = (&VMReplicaSetReconciler{
+		Client:   k8sManager.GetClient(),
+		Scheme:   k8sManager.GetScheme(),
+		Recorder: k8sManager.GetEventRecorderFor("vmr-controller"),
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

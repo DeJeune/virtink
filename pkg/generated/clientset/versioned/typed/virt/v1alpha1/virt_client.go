@@ -14,6 +14,7 @@ type VirtV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	VirtualMachinesGetter
 	VirtualMachineMigrationsGetter
+	VirtualMachineReplicaSetsGetter
 }
 
 // VirtV1alpha1Client is used to interact with features provided by the virt.virtink.smartx.com group.
@@ -27,6 +28,10 @@ func (c *VirtV1alpha1Client) VirtualMachines(namespace string) VirtualMachineInt
 
 func (c *VirtV1alpha1Client) VirtualMachineMigrations(namespace string) VirtualMachineMigrationInterface {
 	return newVirtualMachineMigrations(c, namespace)
+}
+
+func (c *VirtV1alpha1Client) VirtualMachineReplicaSets(namespace string) VirtualMachineReplicaSetInterface {
+	return newVirtualMachineReplicaSets(c, namespace)
 }
 
 // NewForConfig creates a new VirtV1alpha1Client for the given config.

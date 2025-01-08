@@ -2,13 +2,13 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: virt-controller
 rules:
 - apiGroups:
   - ""
   resources:
   - configmaps
+  - pods
   verbs:
   - create
   - delete
@@ -32,18 +32,6 @@ rules:
   verbs:
   - get
   - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - cdi.kubevirt.io
@@ -85,6 +73,7 @@ rules:
   - virt.virtink.smartx.com
   resources:
   - virtualmachinemigrations/status
+  - virtualmachines/status
   verbs:
   - get
   - patch
@@ -106,12 +95,4 @@ rules:
   resources:
   - virtualmachines/finalizers
   verbs:
-  - update
-- apiGroups:
-  - virt.virtink.smartx.com
-  resources:
-  - virtualmachines/status
-  verbs:
-  - get
-  - patch
   - update

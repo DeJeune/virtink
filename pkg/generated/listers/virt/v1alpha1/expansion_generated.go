@@ -17,3 +17,11 @@ type VirtualMachineMigrationListerExpansion interface{}
 // VirtualMachineMigrationNamespaceListerExpansion allows custom methods to be added to
 // VirtualMachineMigrationNamespaceLister.
 type VirtualMachineMigrationNamespaceListerExpansion interface{}
+
+// VirtualMachineReplicaSetListerExpansion allows custom methods to be added to
+// VirtualMachineReplicaSetLister.
+type VirtualMachineReplicaSetListerExpansion interface{}
+
+// VirtualMachineReplicaSetNamespaceListerExpansion allows custom methods to be added to
+// VirtualMachineReplicaSetNamespaceLister.
+type VirtualMachineReplicaSetNamespaceListerExpansion interface{}

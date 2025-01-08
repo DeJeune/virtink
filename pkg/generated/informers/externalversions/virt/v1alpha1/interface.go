@@ -12,6 +12,8 @@ type Interface interface {
 	VirtualMachines() VirtualMachineInformer
 	// VirtualMachineMigrations returns a VirtualMachineMigrationInformer.
 	VirtualMachineMigrations() VirtualMachineMigrationInformer
+	// VirtualMachineReplicaSets returns a VirtualMachineReplicaSetInformer.
+	VirtualMachineReplicaSets() VirtualMachineReplicaSetInformer
 }
 
 type version struct {
@@ -33,4 +35,9 @@ func (v *version) VirtualMachines() VirtualMachineInformer {
 // VirtualMachineMigrations returns a VirtualMachineMigrationInformer.
 func (v *version) VirtualMachineMigrations() VirtualMachineMigrationInformer {
 	return &virtualMachineMigrationInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// VirtualMachineReplicaSets returns a VirtualMachineReplicaSetInformer.
+func (v *version) VirtualMachineReplicaSets() VirtualMachineReplicaSetInformer {
+	return &virtualMachineReplicaSetInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
