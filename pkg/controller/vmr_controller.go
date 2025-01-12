@@ -2,31 +2,34 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
+	"github.com/smartxworks/virtink/pkg/controller/expectations"
 )
 
 const (
@@ -37,14 +40,15 @@ const (
 	deleteRequeueInterval = time.Second * 10
 	healthCheckTimeout    = time.Minute * 5
 	maxRetries            = 5
-	BurstReplicas         = 250
+	BurstReplicas         = 10
 )
 
 // VMReplicaSetReconciler reconciles a VirtualMachineReplicaSet object
 type VMReplicaSetReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Scheme       *runtime.Scheme
+	Recorder     record.EventRecorder
+	expectations *expectations.UIDTrackingControllerExpectations
 }
 
 // +kubebuilder:rbac:groups=virt.virtink.smartx.com,resources=virtualmachinereplicasets,verbs=get;list;watch;create;update;patch;delete
@@ -56,58 +60,81 @@ type VMReplicaSetReconciler struct {
 // It ensures the desired state matches the actual state in the cluster
 func (r *VMReplicaSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("Starting reconciliation", "namespacedName", req.NamespacedName)
 
-	var vmr virtv1alpha1.VirtualMachineReplicaSet
-	if err := r.Get(ctx, req.NamespacedName, &vmr); err != nil {
+	vmr := &virtv1alpha1.VirtualMachineReplicaSet{}
+	if err := r.Get(ctx, req.NamespacedName, vmr); err != nil {
 		logger.Info("VMReplicaSet not found, ignoring", "namespacedName", req.NamespacedName)
+		r.expectations.DeleteExpectations(req.String())
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	// 这里已经能获取到vmr
 
-	// Handle reconciliation
-	if err := r.reconcile(ctx, &vmr); err != nil {
-		if apierrors.IsConflict(err) {
-			return ctrl.Result{Requeue: true}, nil
-		}
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to reconcile VMReplicaSet")
-		return ctrl.Result{}, err
+	logger.Info("VMReplicaSet found", "vmr", vmr)
+
+	oldStatus := vmr.Status.DeepCopy()
+
+	rerr := r.reconcile(ctx, vmr)
+	logger.Info("vmr status: ", "vmr", vmr.Status)
+	logger.Info("oldStatus: ", "oldStatus", oldStatus)
+
+	if oldStatus.Replicas == vmr.Status.Replicas &&
+		oldStatus.ReadyReplicas == vmr.Status.ReadyReplicas &&
+		oldStatus.AvailableReplicas == vmr.Status.AvailableReplicas &&
+		oldStatus.ObservedGeneration == vmr.Status.ObservedGeneration &&
+		reflect.DeepEqual(oldStatus.Conditions, vmr.Status.Conditions) {
+		return ctrl.Result{}, nil
 	}
 
-	if err := r.gcVMs(ctx, &vmr); err != nil {
-		return ctrl.Result{}, fmt.Errorf("GC VMs: %w", err)
+	if !reflect.DeepEqual(oldStatus, vmr.Status) {
+		if err := r.Status().Update(ctx, vmr); err != nil {
+			if rerr == nil {
+				if apierrors.IsConflict(err) {
+					return ctrl.Result{Requeue: true}, nil
+				}
+				return ctrl.Result{}, fmt.Errorf("update VMReplicaSet status: %s", err)
+			}
+			if !apierrors.IsConflict(err) {
+				logger.Error(err, "update VMReplicaSet status")
+			}
+		}
+
+	}
+
+	if rerr != nil {
+		reconcileErr := reconcileError{}
+		if errors.As(rerr, &reconcileErr) {
+			return reconcileErr.Result, nil
+		}
+
+		r.Recorder.Eventf(vmr, corev1.EventTypeWarning, "FailedReconcile", "Failed to reconcile VMReplicaSet: %s", rerr)
+		return ctrl.Result{}, rerr
 	}
 
 	return ctrl.Result{}, nil
 }
 
 func (r *VMReplicaSetReconciler) reconcile(ctx context.Context, vmr *virtv1alpha1.VirtualMachineReplicaSet) error {
-	// Add finalizer if not present
-	if vmr.DeletionTimestamp.IsZero() && !controllerutil.ContainsFinalizer(vmr, VMReplicaSetFinalizer) {
-		controllerutil.AddFinalizer(vmr, VMReplicaSetFinalizer)
-		return r.Client.Update(ctx, vmr)
-	}
+
+	needsSync := r.expectations.SatisfiedExpectations(client.ObjectKeyFromObject(vmr).String())
 	// Get controlled VMs
 	vms, err := r.getControlledVMs(ctx, vmr)
 	if err != nil {
 		return fmt.Errorf("failed to get controlled VMs: %v", err)
 	}
-	var scaleErr error
-	activeVms := filterReadyVMs(vms)
+
+	activeVms := filterActiveVMs(vms)
 	finishedVms := append(filterFinishedVMs(vms), filterUnknownVMs(vms)...)
-	if !vmr.Spec.Paused && vmr.DeletionTimestamp.IsZero() {
+
+	var scaleErr error
+
+	if needsSync && !vmr.Spec.Paused && vmr.DeletionTimestamp.IsZero() {
 		scaleErr = r.scaleVMs(ctx, vmr, activeVms)
 		if len(finishedVms) > 0 && scaleErr == nil {
 			scaleErr = r.cleanVMs(ctx, vmr, finishedVms)
 		}
 	}
 
-	if scaleErr != nil {
-		return fmt.Errorf("failed to scale VMs: %v", scaleErr)
-	}
-
-	newStatus := r.calculateStatus(vmr, activeVms, scaleErr)
-
-	return r.updateStatus(ctx, vmr, newStatus)
+	return r.calculateStatus(vmr, activeVms, scaleErr)
 }
 
 func (r *VMReplicaSetReconciler) scaleVMs(ctx context.Context, vmr *virtv1alpha1.VirtualMachineReplicaSet, vms []*virtv1alpha1.VirtualMachine) error {
@@ -117,74 +144,60 @@ func (r *VMReplicaSetReconciler) scaleVMs(ctx context.Context, vmr *virtv1alpha1
 		replicas = *vmr.Spec.Replicas
 	}
 
-	// Update replica failure condition
+	// Calculate the difference between current and desired replicas
 	diff := len(vms) - int(replicas)
 	if diff == 0 {
 		return nil
 	}
 	maxDiff := int(math.Min(math.Abs(float64(diff)), float64(BurstReplicas)))
+
 	errChan := make(chan error, maxDiff)
+
 	var wg sync.WaitGroup
 	wg.Add(maxDiff)
-
 	if diff < 0 {
 		// Need to create VMs
-		for i := 0; i < -diff && i < maxDiff; i++ {
+		r.expectations.ExpectCreations(client.ObjectKeyFromObject(vmr).String(), maxDiff)
+		for i := 0; i < maxDiff; i++ {
 			go func() {
 				defer wg.Done()
-				select {
-				case <-ctx.Done():
-					errChan <- ctx.Err()
+				if err := r.createVM(ctx, vmr.Spec.Template, vmr); err != nil {
+					errChan <- err
 					return
-				default:
-					if err := r.createVM(ctx, &vmr.Spec.Template, vmr); err != nil {
-						r.Recorder.Eventf(vmr, corev1.EventTypeWarning, "FailedCreate",
-							"Failed to create VM: %v", err)
-						errChan <- err
-						return
-					}
 				}
 			}()
 		}
 	} else if diff > 0 {
 		// Need to delete VMs
 		vmToDelete := getVMsToDelete(vms, maxDiff)
+		keys := []string{}
 		for _, vm := range vmToDelete {
-			vm := vm // Create new variable for goroutine
-			go func() {
+			keys = append(keys, client.ObjectKeyFromObject(vm).String())
+		}
+		r.expectations.ExpectDeletions(client.ObjectKeyFromObject(vmr).String(), keys)
+		for _, vm := range vmToDelete {
+			go func(vm *virtv1alpha1.VirtualMachine) {
 				defer wg.Done()
-				select {
-				case <-ctx.Done():
-					errChan <- ctx.Err()
+				if err := r.DeleteVM(ctx, vm, vmr); err != nil {
+					r.Recorder.Eventf(vmr, corev1.EventTypeWarning, "FailedDelete",
+						"Error deleting virtual machine instance %s: %v", vm.ObjectMeta.Name, err)
+					errChan <- err
 					return
-				default:
-					if err := r.DeleteVM(ctx, vm, vmr); err != nil {
-						r.Recorder.Eventf(vmr, corev1.EventTypeWarning, "FailedDelete",
-							"Error deleting virtual machine instance %s: %v", vm.ObjectMeta.Name, err)
-						errChan <- err
-						return
-					}
-					r.Recorder.Eventf(vmr, corev1.EventTypeNormal, "SuccessfulDelete",
-						"Deleted virtual machine instance %s", vm.ObjectMeta.Name)
 				}
-			}()
+				r.Recorder.Eventf(vmr, corev1.EventTypeNormal, "SuccessfulDelete",
+					"Deleted virtual machine instance %s", vm.ObjectMeta.Name)
+
+			}(vm)
 		}
 	}
 
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
+	wg.Wait()
 	select {
-	case <-ctx.Done():
-		return ctx.Err()
 	case err := <-errChan:
 		return err
-	case <-done:
-		return nil
+	default:
 	}
+	return nil
 }
 
 func (r *VMReplicaSetReconciler) cleanVMs(ctx context.Context, vmr *virtv1alpha1.VirtualMachineReplicaSet, vms []*virtv1alpha1.VirtualMachine) error {
@@ -214,6 +227,9 @@ func (r *VMReplicaSetReconciler) cleanVMs(ctx context.Context, vmr *virtv1alpha1
 
 func (r *VMReplicaSetReconciler) DeleteVM(ctx context.Context, vm *virtv1alpha1.VirtualMachine, obj client.Object) error {
 	if err := r.Delete(ctx, vm); err != nil && !apierrors.IsNotFound(err) {
+		r.expectations.DeletionObserved(client.ObjectKeyFromObject(obj).String(), client.ObjectKeyFromObject(vm).String())
+		r.Recorder.Eventf(obj, corev1.EventTypeWarning, "FailedDelete",
+			"Error deleting virtual machine instance %s: %v", vm.ObjectMeta.Name, err)
 		return err
 	}
 
@@ -230,7 +246,6 @@ func (r *VMReplicaSetReconciler) createVM(ctx context.Context, template *virtv1a
 		return fmt.Errorf("parentObject does not have ObjectMeta, %v", err)
 	}
 
-	// Set owner reference
 	vm := &virtv1alpha1.VirtualMachine{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: fmt.Sprintf("%s-", accessor.GetName()),
@@ -241,12 +256,14 @@ func (r *VMReplicaSetReconciler) createVM(ctx context.Context, template *virtv1a
 		Spec: *template.Spec.DeepCopy(),
 	}
 
+	// Set owner reference
 	if err := controllerutil.SetControllerReference(parentObject, vm, r.Scheme); err != nil {
-		return fmt.Errorf("Failed to set controller reference: %v", err)
+		return fmt.Errorf("failed to set controller reference: %v", err)
 	}
 
 	// Create the VM
-	if err := r.Client.Create(ctx, vm); err != nil {
+	if err := r.Create(ctx, vm); err != nil {
+		r.expectations.CreationObserved(client.ObjectKeyFromObject(parentObject).String())
 		// only send an event if the namespace isn't terminating
 		if !apierrors.HasStatusCause(err, corev1.NamespaceTerminatingCause) {
 			r.Recorder.Eventf(parentObject, corev1.EventTypeWarning, "FailedCreate",
@@ -261,9 +278,10 @@ func (r *VMReplicaSetReconciler) createVM(ctx context.Context, template *virtv1a
 }
 
 func (r *VMReplicaSetReconciler) getControlledVMs(ctx context.Context, vmr *virtv1alpha1.VirtualMachineReplicaSet) ([]*virtv1alpha1.VirtualMachine, error) {
+	logger := log.FromContext(ctx)
 	// List all VMs in the namespace
 	var vmList virtv1alpha1.VirtualMachineList
-	if err := r.Client.List(ctx, &vmList, client.InNamespace(vmr.Namespace)); err != nil {
+	if err := r.List(ctx, &vmList, client.InNamespace(vmr.Namespace), client.MatchingFields{"vmrUID": string(vmr.UID)}); err != nil {
 		return nil, err
 	}
 
@@ -274,93 +292,21 @@ func (r *VMReplicaSetReconciler) getControlledVMs(ctx context.Context, vmr *virt
 
 	// Filter for VMs controlled by this VMReplicaSet and match the selector
 	var controlled []*virtv1alpha1.VirtualMachine
+	var count int = 0
 	for _, vm := range vmList.Items {
-		if metav1.IsControlledBy(&vm, vmr) && selector.Matches(labels.Set(vm.Labels)) {
+		if selector.Matches(labels.Set(vm.Labels)) {
 			controlled = append(controlled, &vm)
+			logger.Info(fmt.Sprintf("VM[%d]:", count), "vm", vm)
+			count++
 		}
 	}
 	return controlled, nil
 }
 
-func (r *VMReplicaSetReconciler) updateStatus(ctx context.Context, vmr *virtv1alpha1.VirtualMachineReplicaSet, newStatus virtv1alpha1.VirtualMachineReplicaSetStatus) error {
-	logger := log.FromContext(ctx)
-	// This is the steady state. It happens when the ReplicaSet doesn't have any expectations, since
-	// we do a periodic relist every 30s. If the generations differ but the replicas are
-	// the same, a caller might've resized to the same replica count.
-	if vmr.Status.Replicas == newStatus.Replicas &&
-		vmr.Status.ReadyReplicas == newStatus.ReadyReplicas &&
-		vmr.Status.AvailableReplicas == newStatus.AvailableReplicas &&
-		vmr.Generation == vmr.Status.ObservedGeneration &&
-		reflect.DeepEqual(vmr.Status.Conditions, newStatus.Conditions) {
-		return nil
-	}
-
-	newStatus.ObservedGeneration = vmr.Generation
-
-	var getErr, updateErr error
-	for i, vmr := 0, vmr; ; i++ {
-		logger.Info(fmt.Sprintf("Updating status for %v: %s/%s, ", vmr.Kind, vmr.Namespace, vmr.Name) +
-			fmt.Sprintf("replicas: %d->%d (need %d), ",
-				vmr.Status.Replicas, newStatus.Replicas, *(vmr.Spec.Replicas)) +
-			fmt.Sprintf("readyReplicas: %d->%d, ",
-				vmr.Status.ReadyReplicas, newStatus.ReadyReplicas) +
-			fmt.Sprintf("availableReplicas: %d->%d, ",
-				vmr.Status.AvailableReplicas, newStatus.AvailableReplicas) +
-			fmt.Sprintf("sequence No: %v->%v", vmr.Status.ObservedGeneration, newStatus.ObservedGeneration))
-
-		vmr.Status = newStatus
-		updateErr = r.Client.Status().Update(ctx, vmr)
-		if updateErr != nil {
-			logger.Error(updateErr, "Failed to update status", "namespacedName", types.NamespacedName{Namespace: vmr.Namespace, Name: vmr.Name})
-			return updateErr
-		}
-
-		if i >= maxRetries {
-			break
-		}
-
-		if getErr = r.Client.Get(ctx, types.NamespacedName{Namespace: vmr.Namespace, Name: vmr.Name}, vmr); getErr != nil {
-			return getErr
-		}
-	}
-
-	return nil
-}
-
-func (r *VMReplicaSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&virtv1alpha1.VirtualMachineReplicaSet{}).
-		Owns(&virtv1alpha1.VirtualMachine{}).
-		Watches(
-			&virtv1alpha1.VirtualMachine{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				vm, ok := obj.(*virtv1alpha1.VirtualMachine)
-				if !ok {
-					return nil
-				}
-
-				controllerRef := metav1.GetControllerOf(vm)
-				if controllerRef == nil || controllerRef.Kind != "VirtualMachineReplicaSet" {
-					return nil
-				}
-
-				return []reconcile.Request{
-					{NamespacedName: types.NamespacedName{
-						Namespace: vm.GetNamespace(),
-						Name:      controllerRef.Name,
-					}},
-				}
-			}),
-		).
-		Complete(r)
-}
-
-func (r *VMReplicaSetReconciler) calculateStatus(vmr *virtv1alpha1.VirtualMachineReplicaSet, vms []*virtv1alpha1.VirtualMachine, scaleErr error) virtv1alpha1.VirtualMachineReplicaSetStatus {
-
+func (r *VMReplicaSetReconciler) calculateStatus(vmr *virtv1alpha1.VirtualMachineReplicaSet, vms []*virtv1alpha1.VirtualMachine, scaleErr error) error {
 	readyReplicasCount := 0
 	availableReplicasCount := 0
-	newStatus := vmr.Status.DeepCopy()
-	templateLabel := labels.Set(vmr.Spec.Template.Labels).AsSelectorPreValidated()
+	templateLabel := labels.Set(vmr.Spec.Template.ObjectMeta.Labels).AsSelectorPreValidated()
 	for _, vm := range vms {
 		if templateLabel.Matches(labels.Set(vm.Labels)) {
 			if isVMReady(vm) {
@@ -380,7 +326,7 @@ func (r *VMReplicaSetReconciler) calculateStatus(vmr *virtv1alpha1.VirtualMachin
 		} else if diff > 0 {
 			reason = "FailedDelete"
 		}
-		newStatus.Conditions = append(newStatus.Conditions, virtv1alpha1.VirtualMachineReplicaSetCondition{
+		vmr.Status.Conditions = append(vmr.Status.Conditions, virtv1alpha1.VirtualMachineReplicaSetCondition{
 			Type:               virtv1alpha1.VirtualMachineReplicaSetReplicaFailure,
 			Status:             corev1.ConditionTrue,
 			Reason:             reason,
@@ -389,12 +335,11 @@ func (r *VMReplicaSetReconciler) calculateStatus(vmr *virtv1alpha1.VirtualMachin
 			LastProbeTime:      metav1.Now(),
 		})
 	} else if scaleErr == nil && failureCondition != nil {
-		removeCondition(newStatus, virtv1alpha1.VirtualMachineReplicaSetReplicaFailure)
+		removeCondition(&vmr.Status, virtv1alpha1.VirtualMachineReplicaSetReplicaFailure)
 	}
 
-	pauseCondition := getCondition(vmr.Status, virtv1alpha1.VirtualMachineReplicaSetPaused)
-	if vmr.Spec.Paused && pauseCondition == nil {
-		newStatus.Conditions = append(newStatus.Conditions, virtv1alpha1.VirtualMachineReplicaSetCondition{
+	if vmr.Spec.Paused && !hasCondition(vmr.Status, virtv1alpha1.VirtualMachineReplicaSetPaused) {
+		vmr.Status.Conditions = append(vmr.Status.Conditions, virtv1alpha1.VirtualMachineReplicaSetCondition{
 			Type:               virtv1alpha1.VirtualMachineReplicaSetPaused,
 			Status:             corev1.ConditionTrue,
 			LastTransitionTime: metav1.Now(),
@@ -402,29 +347,182 @@ func (r *VMReplicaSetReconciler) calculateStatus(vmr *virtv1alpha1.VirtualMachin
 			Reason:             "Paused",
 			Message:            "VirtualMachineReplicaSet is paused",
 		})
-		r.Recorder.Eventf(vmr, corev1.EventTypeNormal, "Paused", "VirtualMachineReplicaSet is paused")
-	} else if !vmr.Spec.Paused && pauseCondition != nil {
-		removeCondition(newStatus, virtv1alpha1.VirtualMachineReplicaSetPaused)
-		r.Recorder.Eventf(vmr, corev1.EventTypeNormal, "Resumed", "VirtualMachineReplicaSet is resumed")
+	} else if !vmr.Spec.Paused && hasCondition(vmr.Status, virtv1alpha1.VirtualMachineReplicaSetPaused) {
+		removeCondition(&vmr.Status, virtv1alpha1.VirtualMachineReplicaSetPaused)
 	}
 
-	newStatus.Replicas = int32(len(vms))
-	newStatus.ReadyReplicas = int32(readyReplicasCount)
-	newStatus.AvailableReplicas = int32(availableReplicasCount)
+	vmr.Status.Replicas = int32(len(vms))
+	vmr.Status.ReadyReplicas = int32(readyReplicasCount)
+	vmr.Status.AvailableReplicas = int32(availableReplicasCount)
+	vmr.Status.ObservedGeneration = vmr.Generation
+	return nil
+}
 
-	return *newStatus
+func (r *VMReplicaSetReconciler) getMatchingControllers(ctx context.Context, vm *virtv1alpha1.VirtualMachine) []*virtv1alpha1.VirtualMachineReplicaSet {
+	var vmrl virtv1alpha1.VirtualMachineReplicaSetList
+	var vmrs []*virtv1alpha1.VirtualMachineReplicaSet
+	if err := r.List(ctx, &vmrl, client.InNamespace(vm.Namespace)); err != nil {
+		return nil
+	}
+
+	for _, vmr := range vmrl.Items {
+		selector, err := metav1.LabelSelectorAsSelector(vmr.Spec.Selector)
+		if err != nil {
+			return nil
+		}
+		if selector.Matches(labels.Set(vm.Labels)) {
+			vmrs = append(vmrs, &vmr)
+		}
+	}
+	return vmrs
+}
+
+func (r *VMReplicaSetReconciler) deleteVM(ctx context.Context, obj client.Object, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	logger := log.FromContext(ctx)
+	vm := obj.(*virtv1alpha1.VirtualMachine)
+	namespace := vm.GetNamespace()
+
+	controllerRef := metav1.GetControllerOf(vm)
+	if controllerRef == nil {
+		logger.V(2).Info("No controller ref found for VM", "vm", vm.GetName())
+		return
+	}
+	vmr := r.resolveControllerRef(namespace, controllerRef)
+	if vmr == nil {
+		logger.V(2).Info("No VMReplicaSet found for VM", "vm", vm.GetName())
+		return
+	}
+
+	rsKey := types.NamespacedName{Namespace: namespace, Name: controllerRef.Name}
+	vmKey := types.NamespacedName{Namespace: namespace, Name: vm.GetName()}
+
+	r.expectations.DeletionObserved(rsKey.String(), vmKey.String())
+	queue.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(vmr)})
+}
+
+func (r *VMReplicaSetReconciler) resolveControllerRef(namespace string, ref *metav1.OwnerReference) *virtv1alpha1.VirtualMachineReplicaSet {
+	if ref.Kind != "VirtualMachineReplicaSet" {
+		return nil
+	}
+
+	vmr := &virtv1alpha1.VirtualMachineReplicaSet{}
+	vmrKey := types.NamespacedName{Namespace: namespace, Name: ref.Name}
+	if err := r.Get(context.Background(), vmrKey, vmr); err != nil {
+		return nil
+	}
+	if vmr.UID != ref.UID {
+		return nil
+	}
+	return vmr
+}
+
+func (r *VMReplicaSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &virtv1alpha1.VirtualMachine{}, "vmrUID", func(obj client.Object) []string {
+		vm := obj.(*virtv1alpha1.VirtualMachine)
+		controllerRef := metav1.GetControllerOf(vm)
+		if controllerRef != nil && controllerRef.APIVersion == virtv1alpha1.SchemeGroupVersion.String() && controllerRef.Kind == "VirtualMachineReplicaSet" {
+			return []string{string(controllerRef.UID)}
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("index VirtualMachine by vmrUID: %s", err)
+	}
+
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&virtv1alpha1.VirtualMachineReplicaSet{}).
+		Owns(&virtv1alpha1.VirtualMachine{}).
+		Watches(
+			&virtv1alpha1.VirtualMachine{},
+			handler.Funcs{
+				CreateFunc: func(ctx context.Context, event event.CreateEvent, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+					vm := event.Object.(*virtv1alpha1.VirtualMachine)
+					if !vm.DeletionTimestamp.IsZero() {
+						r.deleteVM(ctx, vm, queue)
+						return
+					}
+
+					if controllerRef := metav1.GetControllerOf(vm); controllerRef != nil {
+						rs := r.resolveControllerRef(vm.Namespace, controllerRef)
+						if rs != nil {
+							rsKey := client.ObjectKeyFromObject(rs)
+							r.expectations.CreationObserved(rsKey.String())
+							queue.Add(reconcile.Request{NamespacedName: rsKey})
+							return
+						}
+						return
+					}
+
+					rss := r.getMatchingControllers(ctx, vm)
+					if len(rss) == 0 {
+						return
+					}
+					for _, rs := range rss {
+						rsKey := client.ObjectKeyFromObject(rs)
+						queue.Add(reconcile.Request{NamespacedName: rsKey})
+					}
+				},
+				DeleteFunc: func(ctx context.Context, event event.DeleteEvent, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+					r.deleteVM(ctx, event.Object, queue)
+				},
+				UpdateFunc: func(ctx context.Context, event event.UpdateEvent, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+					oldVM := event.ObjectOld.(*virtv1alpha1.VirtualMachine)
+					newVM := event.ObjectNew.(*virtv1alpha1.VirtualMachine)
+					if oldVM.ResourceVersion == newVM.ResourceVersion {
+						return
+					}
+
+					labelChanged := !equality.Semantic.DeepEqual(oldVM.Labels, newVM.Labels)
+					if !newVM.DeletionTimestamp.IsZero() {
+						r.deleteVM(ctx, newVM, queue)
+						if labelChanged {
+							r.deleteVM(ctx, oldVM, queue)
+						}
+					}
+
+					oldControllerRef := metav1.GetControllerOf(oldVM)
+					newControllerRef := metav1.GetControllerOf(newVM)
+					controllerRefChanged := !equality.Semantic.DeepEqual(newControllerRef, oldControllerRef)
+					if controllerRefChanged && oldControllerRef != nil {
+						if rs := r.resolveControllerRef(oldVM.Namespace, oldControllerRef); rs != nil {
+							queue.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(rs)})
+						}
+					}
+					if newControllerRef != nil {
+						if rs := r.resolveControllerRef(newVM.Namespace, newControllerRef); rs != nil {
+							queue.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(rs)})
+						}
+						return
+					}
+
+					if labelChanged || controllerRefChanged {
+						vmrs := r.getMatchingControllers(ctx, newVM)
+						if len(vmrs) == 0 {
+							return
+						}
+						for _, vmr := range vmrs {
+							queue.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(vmr)})
+						}
+					}
+				},
+			},
+		).
+		Complete(r)
 }
 
 // Helper functions
 
+func isVMFinal(vm *virtv1alpha1.VirtualMachine) bool {
+	return vm.Status.Phase == virtv1alpha1.VirtualMachineFailed ||
+		vm.Status.Phase == virtv1alpha1.VirtualMachineSucceeded
+}
+
 func isVMReady(vm *virtv1alpha1.VirtualMachine) bool {
-	return isVMActive(vm) && vm.Status.Phase == virtv1alpha1.VirtualMachineRunning &&
+	return vm.Status.Phase != "" && isVMActive(vm) && vm.Status.Phase == virtv1alpha1.VirtualMachineRunning &&
 		meta.IsStatusConditionTrue(vm.Status.Conditions, string(virtv1alpha1.VirtualMachineReady))
 }
 
 func isVMActive(vm *virtv1alpha1.VirtualMachine) bool {
-	return vm.Status.Phase != virtv1alpha1.VirtualMachineFailed &&
-		vm.Status.Phase != virtv1alpha1.VirtualMachineSucceeded &&
+	return !isVMFinal(vm) &&
 		vm.DeletionTimestamp.IsZero()
 }
 
@@ -463,6 +561,10 @@ func filterReadyVMs(vms []*virtv1alpha1.VirtualMachine) []*virtv1alpha1.VirtualM
 	return filter(vms, isVMReady)
 }
 
+func filterActiveVMs(vms []*virtv1alpha1.VirtualMachine) []*virtv1alpha1.VirtualMachine {
+	return filter(vms, isVMActive)
+}
+
 func sortVMsByCreationTimestamp(vms []*virtv1alpha1.VirtualMachine, ascending bool) {
 	if ascending {
 		sort.Slice(vms, func(i, j int) bool {
@@ -484,10 +586,6 @@ func getVMsToDelete(filterVms []*virtv1alpha1.VirtualMachine, diff int) []*virtv
 	return filterVms[:diff]
 }
 
-func generateRandomSuffix() string {
-	return strings.ToLower(rand.String(5))
-}
-
 func getCondition(status virtv1alpha1.VirtualMachineReplicaSetStatus, conditionType virtv1alpha1.VirtualMachineReplicaSetConditionType) *virtv1alpha1.VirtualMachineReplicaSetCondition {
 	for _, cond := range status.Conditions {
 		if cond.Type == conditionType {
@@ -502,6 +600,15 @@ func removeCondition(status *virtv1alpha1.VirtualMachineReplicaSetStatus, condTy
 	status.Conditions = filterOutCondition(status.Conditions, condType)
 }
 
+func hasCondition(status virtv1alpha1.VirtualMachineReplicaSetStatus, condType virtv1alpha1.VirtualMachineReplicaSetConditionType) bool {
+	for _, cond := range status.Conditions {
+		if cond.Type == condType {
+			return true
+		}
+	}
+	return false
+}
+
 // filterOutCondition returns a new slice of replicaset conditions without conditions with the provided type.
 func filterOutCondition(conditions []virtv1alpha1.VirtualMachineReplicaSetCondition, condType virtv1alpha1.VirtualMachineReplicaSetConditionType) []virtv1alpha1.VirtualMachineReplicaSetCondition {
 	var newConditions []virtv1alpha1.VirtualMachineReplicaSetCondition
@@ -514,63 +621,15 @@ func filterOutCondition(conditions []virtv1alpha1.VirtualMachineReplicaSetCondit
 	return newConditions
 }
 
-func (r *VMReplicaSetReconciler) gcVMs(ctx context.Context, vmr *virtv1alpha1.VirtualMachineReplicaSet) error {
-	// List all VMs controlled by this VMReplicaSet
-	vms, err := r.getControlledVMs(ctx, vmr)
-	if err != nil {
-		return fmt.Errorf("failed to get controlled VMs: %v", err)
+func OwnerRef(rs *virtv1alpha1.VirtualMachineReplicaSet) metav1.OwnerReference {
+	t := true
+	gvk := virtv1alpha1.SchemeGroupVersion.WithKind("VirtualMachineReplicaSet")
+	return metav1.OwnerReference{
+		APIVersion:         gvk.GroupVersion().String(),
+		Kind:               gvk.Kind,
+		Name:               rs.ObjectMeta.Name,
+		UID:                rs.ObjectMeta.UID,
+		Controller:         &t,
+		BlockOwnerDeletion: &t,
 	}
-
-	// If VMReplicaSet is being deleted, delete all VMs and remove finalizer when done
-	if !vmr.DeletionTimestamp.IsZero() {
-		// Check if there are any VMs still being deleted
-		hasVMsBeingDeleted := false
-		for _, vm := range vms {
-			if vm.DeletionTimestamp != nil && !vm.DeletionTimestamp.IsZero() {
-				hasVMsBeingDeleted = true
-				break
-			}
-		}
-
-		if len(vms) == 0 || (!hasVMsBeingDeleted && len(vms) == 0) {
-			controllerutil.RemoveFinalizer(vmr, VMReplicaSetFinalizer)
-			return r.Update(ctx, vmr)
-		}
-
-		// Delete all remaining VMs
-		for _, vm := range vms {
-			if vm.DeletionTimestamp != nil && !vm.DeletionTimestamp.IsZero() {
-				continue
-			}
-			if err := r.DeleteVM(ctx, vm, vmr); err != nil {
-				return fmt.Errorf("failed to delete VM %s: %v", vm.Name, err)
-			}
-			r.Recorder.Eventf(vmr, corev1.EventTypeNormal, "DeletedVM",
-				"Deleted VM %q because VMReplicaSet is being deleted", vm.Name)
-		}
-		return &reconcileError{Result: ctrl.Result{RequeueAfter: deleteRequeueInterval}}
-	}
-
-	// Get selector for the VMReplicaSet
-	selector, err := metav1.LabelSelectorAsSelector(vmr.Spec.Selector)
-	if err != nil {
-		return fmt.Errorf("failed to convert label selector: %w", err)
-	}
-
-	// Delete VMs that no longer match the selector
-	for _, vm := range vms {
-		if vm.DeletionTimestamp != nil && !vm.DeletionTimestamp.IsZero() {
-			continue
-		}
-
-		if !selector.Matches(labels.Set(vm.Labels)) {
-			if err := r.DeleteVM(ctx, vm, vmr); err != nil {
-				return fmt.Errorf("failed to delete VM %s: %v", vm.Name, err)
-			}
-			r.Recorder.Eventf(vmr, corev1.EventTypeNormal, "DeletedVM",
-				"Deleted VM %q that no longer matched selector", vm.Name)
-		}
-	}
-
-	return nil
 }

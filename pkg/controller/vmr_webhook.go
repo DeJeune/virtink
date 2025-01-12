@@ -142,17 +142,17 @@ func ValidateVMReplicaSetSpec(ctx context.Context, spec *virtv1alpha1.VirtualMac
 	}
 
 	// Validate template
-	if spec.Template.Labels == nil {
+	if spec.Template.ObjectMeta.Labels == nil {
 		errs = append(errs, field.Required(fieldPath.Child("template", "metadata", "labels"), ""))
 	}
 
 	// Validate selector matches template labels
-	if spec.Selector != nil && spec.Template.Labels != nil {
+	if spec.Selector != nil && spec.Template.ObjectMeta.Labels != nil {
 		selector, err := metav1.LabelSelectorAsSelector(spec.Selector)
 		if err != nil {
 			errs = append(errs, field.Invalid(fieldPath.Child("selector"), spec.Selector, fmt.Sprintf("invalid selector: %v", err)))
-		} else if !selector.Matches(labels.Set(spec.Template.Labels)) {
-			errs = append(errs, field.Invalid(fieldPath.Child("template", "metadata", "labels"), spec.Template.Labels, "must match selector"))
+		} else if !selector.Matches(labels.Set(spec.Template.ObjectMeta.Labels)) {
+			errs = append(errs, field.Invalid(fieldPath.Child("template", "metadata", "labels"), spec.Template.ObjectMeta.Labels, "must match selector"))
 		}
 	}
 

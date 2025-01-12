@@ -8,6 +8,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"go.uber.org/zap/zapcore"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -17,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
+	"github.com/smartxworks/virtink/pkg/controller/expectations"
 )
 
 var (
@@ -34,7 +36,16 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	opts := &zap.Options{
+		Development: true,                       // 根据需要设置为 true 或 false
+		TimeEncoder: zapcore.ISO8601TimeEncoder, // 使用 ISO8601 时间编码
+	}
+	// 创建日志记录器
+	logf.SetLogger(zap.New(
+		zap.WriteTo(GinkgoWriter),
+		zap.UseDevMode(true),
+		zap.UseFlagOptions(opts),
+	))
 
 	ctx, cancel = context.WithCancel(context.TODO())
 
@@ -51,6 +62,7 @@ var _ = BeforeSuite(func() {
 
 	var err error
 	cfg, err = testEnv.Start()
+	cfg.WarningHandler = rest.NoWarnings{}
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
@@ -77,9 +89,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&VMReplicaSetReconciler{
-		Client:   k8sManager.GetClient(),
-		Scheme:   k8sManager.GetScheme(),
-		Recorder: k8sManager.GetEventRecorderFor("vmr-controller"),
+		Client:       k8sManager.GetClient(),
+		Scheme:       k8sManager.GetScheme(),
+		Recorder:     k8sManager.GetEventRecorderFor("vmr-controller"),
+		expectations: expectations.NewUIDTrackingControllerExpectations(expectations.NewControllerExpectations()),
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

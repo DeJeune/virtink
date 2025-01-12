@@ -20,7 +20,7 @@ func TestValidateVMReplicaSet(t *testing.T) {
 					"app": "test",
 				},
 			},
-			Template: virtv1alpha1.VirtualMachineTemplateSpec{
+			Template: &virtv1alpha1.VirtualMachineTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
 						"app": "test",
@@ -73,7 +73,7 @@ func TestValidateVMReplicaSet(t *testing.T) {
 			name: "missing template labels",
 			vmr: func() *virtv1alpha1.VirtualMachineReplicaSet {
 				vmr := validVMR.DeepCopy()
-				vmr.Spec.Template.Labels = nil
+				vmr.Spec.Template.ObjectMeta.Labels = nil
 				return vmr
 			}(),
 			invalidFields: []string{"spec.template.metadata.labels"},
@@ -82,7 +82,7 @@ func TestValidateVMReplicaSet(t *testing.T) {
 			name: "selector not matching template labels",
 			vmr: func() *virtv1alpha1.VirtualMachineReplicaSet {
 				vmr := validVMR.DeepCopy()
-				vmr.Spec.Template.Labels = map[string]string{
+				vmr.Spec.Template.ObjectMeta.Labels = map[string]string{
 					"app": "different",
 				}
 				return vmr

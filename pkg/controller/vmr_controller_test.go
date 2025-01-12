@@ -1,301 +1,443 @@
 package controller
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gstruct"
+	gomegaTypes "github.com/onsi/gomega/types"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"time"
 
 	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
 )
 
+const (
+	timeout  = time.Second * 10
+	interval = time.Millisecond * 250
+)
+
 var _ = Describe("VMReplicaSet controller", func() {
-	Context("for a new VMReplicaSet", func() {
+
+	Context("when creating missing VMs", func() {
 		var vmrKey types.NamespacedName
+		var vmr *virtv1alpha1.VirtualMachineReplicaSet
 
 		BeforeEach(func() {
-			By("creating a new VMReplicaSet")
 			vmrKey = types.NamespacedName{
 				Name:      uuid.New().String(),
-				Namespace: "default",
+				Namespace: metav1.NamespaceDefault,
 			}
-			vmr := virtv1alpha1.VirtualMachineReplicaSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      vmrKey.Name,
-					Namespace: vmrKey.Namespace,
-				},
-				Spec: virtv1alpha1.VirtualMachineReplicaSetSpec{
-					Replicas: int32Ptr(2),
-					Selector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							"test-vmr": vmrKey.Name,
-						},
-					},
-					Template: virtv1alpha1.VirtualMachineTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Labels: map[string]string{
-								"test-vmr": vmrKey.Name,
-							},
-						},
-						Spec: virtv1alpha1.VirtualMachineSpec{
-							RunPolicy: virtv1alpha1.RunPolicyManual,
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, &vmr)).To(Succeed())
-		})
-
-		It("should add finalizer", func() {
-			Eventually(func() bool {
-				var vmr virtv1alpha1.VirtualMachineReplicaSet
-				Expect(k8sClient.Get(ctx, vmrKey, &vmr)).To(Succeed())
-				return containsFinalizer(&vmr, VMReplicaSetFinalizer)
-			}).Should(BeTrue())
+			vmr, _ = defaultReplicaSet(2, vmrKey)
+			Expect(k8sClient.Create(ctx, vmr)).To(Succeed())
 		})
 
 		It("should create VMs", func() {
-			Eventually(func() bool {
-				var vmList virtv1alpha1.VirtualMachineList
-				Expect(k8sClient.List(ctx, &vmList, client.InNamespace(vmrKey.Namespace))).To(Succeed())
-
-				matchingVMs := 0
-				for _, vm := range vmList.Items {
-					if vm.Labels["test-vmr"] == vmrKey.Name {
-						matchingVMs++
-					}
-				}
-				return matchingVMs == 2
-			}, 30*time.Second, time.Second).Should(BeTrue())
+			expectVMReplicas(vmr, HaveLen(2))
 		})
 
-		It("should update status", func() {
-			Eventually(func() bool {
-				var vmr virtv1alpha1.VirtualMachineReplicaSet
-				Expect(k8sClient.Get(ctx, vmrKey, &vmr)).To(Succeed())
-				return vmr.Status.Replicas == 2
-			}, 30*time.Second, time.Second).Should(BeTrue())
-		})
-	})
-
-	Context("when scaling VMReplicaSet", func() {
-		var vmrKey types.NamespacedName
-
-		BeforeEach(func() {
-			By("creating a new VMReplicaSet")
-			vmrKey = types.NamespacedName{
-				Name:      uuid.New().String(),
-				Namespace: "default",
-			}
-			vmr := virtv1alpha1.VirtualMachineReplicaSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      vmrKey.Name,
-					Namespace: vmrKey.Namespace,
-				},
-				Spec: virtv1alpha1.VirtualMachineReplicaSetSpec{
-					Replicas: int32Ptr(1),
-					Selector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							"test-vmr": vmrKey.Name,
-						},
-					},
-					Template: virtv1alpha1.VirtualMachineTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Labels: map[string]string{
-								"test-vmr": vmrKey.Name,
-							},
-						},
-						Spec: virtv1alpha1.VirtualMachineSpec{
-							RunPolicy: virtv1alpha1.RunPolicyManual,
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, &vmr)).To(Succeed())
-
-			By("waiting for initial VM to be created")
-			Eventually(func() bool {
-				var vmList virtv1alpha1.VirtualMachineList
-				Expect(k8sClient.List(ctx, &vmList, client.InNamespace(vmrKey.Namespace))).To(Succeed())
-
-				matchingVMs := 0
-				for _, vm := range vmList.Items {
-					if vm.Labels["test-vmr"] == vmrKey.Name {
-						matchingVMs++
-					}
-				}
-				return matchingVMs == 1
-			}, 30*time.Second, time.Second).Should(BeTrue())
-		})
-
-		It("should scale up when replicas increased", func() {
-			By("increasing replicas to 3")
-			Eventually(func() error {
-				var vmr virtv1alpha1.VirtualMachineReplicaSet
-				if err := k8sClient.Get(ctx, vmrKey, &vmr); err != nil {
-					return err
-				}
-				vmr.Spec.Replicas = int32Ptr(3)
-				return k8sClient.Update(ctx, &vmr)
-			}, 30*time.Second, time.Second).Should(Succeed())
-
-			By("checking that new VMs are created")
-			Eventually(func() bool {
-				var vmList virtv1alpha1.VirtualMachineList
-				Expect(k8sClient.List(ctx, &vmList, client.InNamespace(vmrKey.Namespace))).To(Succeed())
-
-				matchingVMs := 0
-				for _, vm := range vmList.Items {
-					if vm.Labels["test-vmr"] == vmrKey.Name {
-						matchingVMs++
-					}
-				}
-				return matchingVMs == 3
-			}, 30*time.Second, time.Second).Should(BeTrue())
-		})
-
-		It("should scale down when replicas decreased", func() {
-			By("first scaling up to 3")
-			Eventually(func() error {
-				var vmr virtv1alpha1.VirtualMachineReplicaSet
-				if err := k8sClient.Get(ctx, vmrKey, &vmr); err != nil {
-					return err
-				}
-				vmr.Spec.Replicas = int32Ptr(3)
-				return k8sClient.Update(ctx, &vmr)
-			}, 30*time.Second, time.Second).Should(Succeed())
-
-			By("waiting for scale up to complete")
-			Eventually(func() bool {
-				var vmList virtv1alpha1.VirtualMachineList
-				Expect(k8sClient.List(ctx, &vmList, client.InNamespace(vmrKey.Namespace))).To(Succeed())
-
-				matchingVMs := 0
-				for _, vm := range vmList.Items {
-					if vm.Labels["test-vmr"] == vmrKey.Name {
-						matchingVMs++
-					}
-				}
-				return matchingVMs == 3
-			}, 30*time.Second, time.Second).Should(BeTrue())
-
-			By("decreasing replicas to 1")
-			Eventually(func() error {
-				var vmr virtv1alpha1.VirtualMachineReplicaSet
-				if err := k8sClient.Get(ctx, vmrKey, &vmr); err != nil {
-					return err
-				}
-				vmr.Spec.Replicas = int32Ptr(1)
-				return k8sClient.Update(ctx, &vmr)
-			}, 30*time.Second, time.Second).Should(Succeed())
-
-			By("checking that VMs are removed")
-			Eventually(func() bool {
-				var vmList virtv1alpha1.VirtualMachineList
-				Expect(k8sClient.List(ctx, &vmList, client.InNamespace(vmrKey.Namespace))).To(Succeed())
-
-				matchingVMs := 0
-				for _, vm := range vmList.Items {
-					if vm.Labels["test-vmr"] == vmrKey.Name {
-						matchingVMs++
-					}
-				}
-				return matchingVMs == 1
-			}, 30*time.Second, time.Second).Should(BeTrue())
-		})
-	})
-
-	Context("when deleting VMReplicaSet", func() {
-		var vmrKey types.NamespacedName
-
-		BeforeEach(func() {
-			By("creating a new VMReplicaSet")
-			vmrKey = types.NamespacedName{
-				Name:      uuid.New().String(),
-				Namespace: "default",
-			}
-			vmr := virtv1alpha1.VirtualMachineReplicaSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      vmrKey.Name,
-					Namespace: vmrKey.Namespace,
-				},
-				Spec: virtv1alpha1.VirtualMachineReplicaSetSpec{
-					Replicas: int32Ptr(2),
-					Selector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							"test-vmr": vmrKey.Name,
-						},
-					},
-					Template: virtv1alpha1.VirtualMachineTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Labels: map[string]string{
-								"test-vmr": vmrKey.Name,
-							},
-						},
-						Spec: virtv1alpha1.VirtualMachineSpec{
-							RunPolicy: virtv1alpha1.RunPolicyManual,
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, &vmr)).To(Succeed())
-
-			By("waiting for VMs to be created")
-			Eventually(func() bool {
-				var vmList virtv1alpha1.VirtualMachineList
-				Expect(k8sClient.List(ctx, &vmList, client.InNamespace(vmrKey.Namespace))).To(Succeed())
-
-				matchingVMs := 0
-				for _, vm := range vmList.Items {
-					if vm.Labels["test-vmr"] == vmrKey.Name {
-						matchingVMs++
-					}
-				}
-				return matchingVMs == 2
-			}, 30*time.Second, time.Second).Should(BeTrue())
-		})
-
-		It("should delete all VMs and remove finalizer", func() {
+		AfterEach(func() {
 			By("deleting the VMReplicaSet")
-			var vmr virtv1alpha1.VirtualMachineReplicaSet
-			Expect(k8sClient.Get(ctx, vmrKey, &vmr)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, &vmr)).To(Succeed())
-
-			By("checking that all VMs are deleted")
-			Eventually(func() bool {
-				var vmList virtv1alpha1.VirtualMachineList
-				Expect(k8sClient.List(ctx, &vmList, client.InNamespace(vmrKey.Namespace))).To(Succeed())
-
-				for _, vm := range vmList.Items {
-					if vm.Labels["test-vmr"] == vmrKey.Name {
-						return false
-					}
-				}
-				return true
-			}, 30*time.Second, time.Second).Should(BeTrue())
-
-			By("checking that VMReplicaSet is deleted")
-			Eventually(func() error {
-				var vmr virtv1alpha1.VirtualMachineReplicaSet
-				return k8sClient.Get(ctx, vmrKey, &vmr)
-			}, 30*time.Second, time.Second).Should(MatchError(ContainSubstring("not found")))
+			Expect(k8sClient.Delete(ctx, vmr)).To(Succeed())
 		})
 	})
+
+	Context("when unpausing VMReplicaSet", func() {
+		var vmrKey types.NamespacedName
+		var vmr *virtv1alpha1.VirtualMachineReplicaSet
+
+		BeforeEach(func() {
+			By("creating the VMReplicaSet in paused state")
+			vmrKey = types.NamespacedName{
+				Name:      uuid.New().String(),
+				Namespace: metav1.NamespaceDefault,
+			}
+			vmr, _ = defaultReplicaSet(2, vmrKey)
+			vmr.Spec.Paused = true
+			Expect(k8sClient.Create(ctx, vmr)).To(Succeed())
+
+			// 等待 paused condition 被设置
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, vmrKey, vmr); err != nil {
+					return false
+				}
+				return hasCondition(vmr.Status, virtv1alpha1.VirtualMachineReplicaSetPaused)
+			}, timeout, interval).Should(BeTrue())
+
+			By("unpausing the VMReplicaSet")
+			Expect(k8sClient.Get(ctx, vmrKey, vmr)).To(Succeed())
+			vmr.Spec.Paused = false
+			Expect(k8sClient.Update(ctx, vmr)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			By("deleting the VMReplicaSet")
+			Expect(k8sClient.Delete(ctx, vmr)).To(Succeed())
+		})
+
+		It("should handle unpausing correctly", func() {
+			By("creating expected number of VMs")
+			expectVMReplicas(vmr, HaveLen(2))
+
+			By("updating replicas status")
+			expectReplicasAndReadyReplicas(vmrKey.Name, 2, 0)
+
+			By("removing paused condition")
+			expectConditions(vmrKey, BeNil())
+		})
+	})
+
+	Context("when VMReplicaSet is paused", func() {
+		var vmrKey types.NamespacedName
+		var vmr *virtv1alpha1.VirtualMachineReplicaSet
+
+		BeforeEach(func() {
+			vmrKey = types.NamespacedName{
+				Name:      uuid.New().String(),
+				Namespace: metav1.NamespaceDefault,
+			}
+			vmr, _ = defaultReplicaSet(2, vmrKey)
+			vmr.Spec.Paused = true
+			vmr.Status.Replicas = 1
+			Expect(k8sClient.Create(ctx, vmr)).To(Succeed())
+
+			// 等待 paused condition 被设置
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, vmrKey, vmr); err != nil {
+					return false
+				}
+				return hasCondition(vmr.Status, virtv1alpha1.VirtualMachineReplicaSetPaused)
+			}, timeout, interval).Should(BeTrue())
+		})
+
+		AfterEach(func() {
+			By("deleting the VMReplicaSet")
+			Expect(k8sClient.Delete(ctx, vmr)).To(Succeed())
+		})
+
+		It("should not create VMs and add paused condition", func() {
+			By("expecting no VMs")
+			expectVMReplicas(vmr, BeEmpty())
+
+			By("expecting replicas and ready replicas")
+			expectReplicasAndReadyReplicas(vmrKey.Name, 0, 0)
+
+			By("expecting paused condition")
+			expectConditions(vmrKey, ContainElement(
+				MatchFields(IgnoreExtras, Fields{
+					"Type":   Equal(virtv1alpha1.VirtualMachineReplicaSetPaused),
+					"Status": Equal(corev1.ConditionTrue),
+				}),
+			))
+		})
+	})
+
+	Context("when creating VMs in batches", func() {
+		var vmrKey types.NamespacedName
+		var vmr *virtv1alpha1.VirtualMachineReplicaSet
+
+		BeforeEach(func() {
+			vmrKey = types.NamespacedName{
+				Name:      uuid.New().String(),
+				Namespace: metav1.NamespaceDefault,
+			}
+			vmr, _ = defaultReplicaSet(15, vmrKey)
+			Expect(k8sClient.Create(ctx, vmr)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			By("deleting the VMReplicaSet")
+			Expect(k8sClient.Delete(ctx, vmr)).To(Succeed())
+		})
+
+		It("should create VMs", func() {
+			expectVMReplicas(vmr, HaveLen(15))
+			expectReplicasAndReadyReplicas(vmr.Name, 15, 0)
+		})
+
+		It("should scale down", func() {
+			vmr.Spec.Replicas = int32Ptr(10)
+			Expect(k8sClient.Update(ctx, vmr)).To(Succeed())
+			expectVMReplicas(vmr, HaveLen(10))
+			expectReplicasAndReadyReplicas(vmr.Name, 10, 0)
+		})
+
+		It("should scale up", func() {
+			vmr.Spec.Replicas = int32Ptr(20)
+			Expect(k8sClient.Update(ctx, vmr)).To(Succeed())
+			expectVMReplicas(vmr, HaveLen(20))
+			expectReplicasAndReadyReplicas(vmr.Name, 20, 0)
+		})
+	})
+
+	Context("when handling non-matching VMIs", func() {
+		var vmrKey types.NamespacedName
+		var vmr *virtv1alpha1.VirtualMachineReplicaSet
+		var nonMatchingVM *virtv1alpha1.VirtualMachine
+
+		BeforeEach(func() {
+			vmrKey = types.NamespacedName{
+				Name:      uuid.New().String(),
+				Namespace: metav1.NamespaceDefault,
+			}
+			vmr, _ = defaultReplicaSet(3, vmrKey)
+			nonMatchingVM = &virtv1alpha1.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "non-matching-vm",
+					Namespace: "default",
+					Labels:    map[string]string{"test": "test1"},
+				},
+				Spec: virtv1alpha1.VirtualMachineSpec{
+					RunPolicy: virtv1alpha1.RunPolicyManual,
+				},
+			}
+			Expect(k8sClient.Create(ctx, vmr)).To(Succeed())
+			Expect(k8sClient.Create(ctx, nonMatchingVM)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			By("deleting the VMReplicaSet and non-matching VM")
+			Expect(k8sClient.Delete(ctx, vmr)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, nonMatchingVM)).To(Succeed())
+		})
+
+		It("should ignore non-matching VMIs", func() {
+			expectVMReplicas(vmr, HaveLen(3))
+		})
+	})
+
+	Context("when deleting a VM instance", func() {
+		var vmrKey types.NamespacedName
+		var vmr *virtv1alpha1.VirtualMachineReplicaSet
+		var vm *virtv1alpha1.VirtualMachine
+
+		BeforeEach(func() {
+			vmrKey = types.NamespacedName{
+				Name:      uuid.New().String(),
+				Namespace: metav1.NamespaceDefault,
+			}
+			vmr, vm = defaultReplicaSet(1, vmrKey)
+			Expect(k8sClient.Create(ctx, vmr)).To(Succeed())
+			Expect(k8sClient.Create(ctx, vm)).To(Succeed())
+			expectVMReplicas(vmr, HaveLen(1))
+			expectReplicasAndReadyReplicas(vmr.Name, 1, 0)
+			Expect(k8sClient.Delete(ctx, vm)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			By("cleaning up VMReplicaSet and VM")
+			Expect(k8sClient.Delete(ctx, vmr)).To(Succeed())
+		})
+
+		It("should recreate the VM", func() {
+			By("waiting for VM to be recreated")
+			expectVMReplicas(vmr, HaveLen(1))
+			expectReplicasAndReadyReplicas(vmr.Name, 1, 0)
+		})
+	})
+
+	Context("when detecting a VM status", func() {
+		var vmrKey types.NamespacedName
+		var vmr *virtv1alpha1.VirtualMachineReplicaSet
+		var vm *virtv1alpha1.VirtualMachine
+
+		BeforeEach(func() {
+			vmrKey = types.NamespacedName{
+				Name:      uuid.New().String(),
+				Namespace: metav1.NamespaceDefault,
+			}
+			vmr, _ = defaultReplicaSet(1, vmrKey)
+			Expect(k8sClient.Create(ctx, vmr)).To(Succeed())
+			expectVMReplicas(vmr, HaveLen(1))
+			expectReplicasAndReadyReplicas(vmr.Name, 1, 0)
+
+			vmList := &virtv1alpha1.VirtualMachineList{}
+			Expect(k8sClient.List(ctx, vmList)).To(Succeed())
+			vm = &vmList.Items[0]
+			if equality.Semantic.DeepEqual(vm.OwnerReferences[0], OwnerRef(vmr)) {
+				vm.Status.Phase = virtv1alpha1.VirtualMachineRunning
+				Expect(k8sClient.Status().Update(ctx, vm)).To(Succeed())
+				expectReplicasAndReadyReplicas(vmr.Name, 1, 1)
+			}
+		})
+
+		AfterEach(func() {
+			Expect(k8sClient.Delete(ctx, vmr)).To(Succeed())
+		})
+
+		It("should delete VirtualMachineInstance in the final state", func() {
+			// Store the current VM's UID for comparison
+			originalUID := vm.UID
+			modifyVM := vm.DeepCopy()
+			modifyVM.Status.Phase = virtv1alpha1.VirtualMachineFailed
+			Expect(k8sClient.Status().Update(ctx, modifyVM)).To(Succeed())
+			// Verify that a new VM is created (different UID but same count)
+			Eventually(func() bool {
+				var vmiList virtv1alpha1.VirtualMachineList
+				if err := k8sClient.List(ctx, &vmiList); err != nil {
+					return false
+				}
+
+				// Find VM owned by our ReplicaSet
+				for _, newVM := range vmiList.Items {
+					for _, or := range newVM.OwnerReferences {
+						if equality.Semantic.DeepEqual(or, OwnerRef(vmr)) {
+							// Should have different UID (indicating it's a new VM)
+							return newVM.UID != originalUID
+						}
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify replica count is maintained
+			expectVMReplicas(vmr, HaveLen(1))
+			expectReplicasAndReadyReplicas(vmr.Name, 1, 0)
+		})
+
+		It("should delete VirtualMachineInstance in the unknown state", func() {
+			originalUID := vm.UID
+			modifyVM := vm.DeepCopy()
+			modifyVM.Status.Phase = virtv1alpha1.VirtualMachineUnknown
+			Expect(k8sClient.Status().Update(ctx, modifyVM)).To(Succeed())
+			Eventually(func() bool {
+				var vmiList virtv1alpha1.VirtualMachineList
+				if err := k8sClient.List(ctx, &vmiList); err != nil {
+					return false
+				}
+
+				// Find VM owned by our ReplicaSet
+				for _, newVM := range vmiList.Items {
+					for _, or := range newVM.OwnerReferences {
+						if equality.Semantic.DeepEqual(or, OwnerRef(vmr)) {
+							// Should have different UID (indicating it's a new VM)
+							return newVM.UID != originalUID
+						}
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue())
+		})
+	})
+
 })
 
 func int32Ptr(i int32) *int32 {
 	return &i
 }
 
-func containsFinalizer(obj metav1.Object, finalizer string) bool {
-	for _, f := range obj.GetFinalizers() {
-		if f == finalizer {
-			return true
-		}
+func replicaSetFromVM(vmrKey types.NamespacedName, vm *virtv1alpha1.VirtualMachine, replicas int32) *virtv1alpha1.VirtualMachineReplicaSet {
+
+	vmr := &virtv1alpha1.VirtualMachineReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      vmrKey.Name,
+			Namespace: vm.Namespace,
+		},
+		Spec: virtv1alpha1.VirtualMachineReplicaSetSpec{
+			Replicas: int32Ptr(replicas),
+			Selector: &metav1.LabelSelector{
+				MatchLabels: vm.ObjectMeta.Labels,
+			},
+			Template: &virtv1alpha1.VirtualMachineTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   vm.ObjectMeta.Name,
+					Labels: vm.ObjectMeta.Labels,
+				},
+				Spec: vm.Spec,
+			},
+		},
 	}
-	return false
+	return vmr
+}
+
+func defaultReplicaSet(replicas int32, vmrKey types.NamespacedName) (*virtv1alpha1.VirtualMachineReplicaSet, *virtv1alpha1.VirtualMachine) {
+	vm := &virtv1alpha1.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: vmrKey.Namespace,
+			Name:      fmt.Sprintf("%s-template", vmrKey.Name),
+			Labels: map[string]string{
+				"test": "test",
+			},
+		},
+		Spec: virtv1alpha1.VirtualMachineSpec{
+			RunPolicy: virtv1alpha1.RunPolicyManual,
+		},
+	}
+	vmr := replicaSetFromVM(vmrKey, vm, replicas)
+
+	return vmr, vm
+}
+
+// 基础的获取函数
+func getVMR(name string) (*virtv1alpha1.VirtualMachineReplicaSet, error) {
+	var vmr virtv1alpha1.VirtualMachineReplicaSet
+	vmrKey := types.NamespacedName{Name: name, Namespace: "default"}
+	err := k8sClient.Get(ctx, vmrKey, &vmr)
+	return &vmr, err
+}
+
+// 期望状态检查函数
+func expectVMRStatus(vmr *virtv1alpha1.VirtualMachineReplicaSet, replicas, readyReplicas int) error {
+	if vmr.Status.Replicas != int32(replicas) {
+		return fmt.Errorf("expected replicas %d but got %d", replicas, vmr.Status.Replicas)
+	}
+	if vmr.Status.ReadyReplicas != int32(readyReplicas) {
+		return fmt.Errorf("expected ready replicas %d but got %d", readyReplicas, vmr.Status.ReadyReplicas)
+	}
+	return nil
+}
+
+// 组合使用
+func expectReplicasAndReadyReplicas(replicaName string, replicas, readyReplicas int) {
+	Eventually(func() error {
+		vmr, err := getVMR(replicaName)
+		if err != nil {
+			return err
+		}
+		return expectVMRStatus(vmr, replicas, readyReplicas)
+	}, timeout, interval).Should(Succeed())
+}
+
+// 基础的条件检查函数
+func checkConditions(conditions []virtv1alpha1.VirtualMachineReplicaSetCondition, matcher gomegaTypes.GomegaMatcher) error {
+	success, err := matcher.Match(conditions)
+	if err != nil {
+		return fmt.Errorf("error matching conditions: %v", err)
+	}
+	if !success {
+		return fmt.Errorf("conditions did not match: %v", conditions)
+	}
+	return nil
+}
+
+func expectConditions(vmrKey types.NamespacedName, matcher gomegaTypes.GomegaMatcher) {
+	Eventually(func() error {
+		vmr, err := getVMR(vmrKey.Name)
+		if err != nil {
+			return err
+		}
+		return checkConditions(vmr.Status.Conditions, matcher)
+	}, timeout, interval).Should(Succeed())
+}
+
+func expectVMReplicas(vmr *virtv1alpha1.VirtualMachineReplicaSet, matcher gomegaTypes.GomegaMatcher) {
+	Eventually(func() []virtv1alpha1.VirtualMachine {
+		var vmiList virtv1alpha1.VirtualMachineList
+		Expect(k8sClient.List(ctx, &vmiList)).To(Succeed())
+		var rsVMs []virtv1alpha1.VirtualMachine
+		for _, vm := range vmiList.Items {
+			for _, or := range vm.OwnerReferences {
+				if equality.Semantic.DeepEqual(or, OwnerRef(vmr)) {
+					rsVMs = append(rsVMs, vm)
+					break
+				}
+			}
+		}
+		return rsVMs
+	}, timeout, interval).Should(matcher)
 }
