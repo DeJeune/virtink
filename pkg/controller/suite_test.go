@@ -92,7 +92,7 @@ var _ = BeforeSuite(func() {
 		Client:       k8sManager.GetClient(),
 		Scheme:       k8sManager.GetScheme(),
 		Recorder:     k8sManager.GetEventRecorderFor("vmr-controller"),
-		expectations: expectations.NewUIDTrackingControllerExpectations(expectations.NewControllerExpectations()),
+		Expectations: expectations.NewUIDTrackingControllerExpectations(expectations.NewControllerExpectations()),
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

@@ -48,7 +48,7 @@ type VMReplicaSetReconciler struct {
 	client.Client
 	Scheme       *runtime.Scheme
 	Recorder     record.EventRecorder
-	expectations *expectations.UIDTrackingControllerExpectations
+	Expectations *expectations.UIDTrackingControllerExpectations
 }
 
 // +kubebuilder:rbac:groups=virt.virtink.smartx.com,resources=virtualmachinereplicasets,verbs=get;list;watch;create;update;patch;delete
@@ -64,18 +64,13 @@ func (r *VMReplicaSetReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	vmr := &virtv1alpha1.VirtualMachineReplicaSet{}
 	if err := r.Get(ctx, req.NamespacedName, vmr); err != nil {
 		logger.Info("VMReplicaSet not found, ignoring", "namespacedName", req.NamespacedName)
-		r.expectations.DeleteExpectations(req.String())
+		r.Expectations.DeleteExpectations(req.String())
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	// 这里已经能获取到vmr
-
-	logger.Info("VMReplicaSet found", "vmr", vmr)
 
 	oldStatus := vmr.Status.DeepCopy()
 
 	rerr := r.reconcile(ctx, vmr)
-	logger.Info("vmr status: ", "vmr", vmr.Status)
-	logger.Info("oldStatus: ", "oldStatus", oldStatus)
 
 	if oldStatus.Replicas == vmr.Status.Replicas &&
 		oldStatus.ReadyReplicas == vmr.Status.ReadyReplicas &&
@@ -115,7 +110,7 @@ func (r *VMReplicaSetReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 func (r *VMReplicaSetReconciler) reconcile(ctx context.Context, vmr *virtv1alpha1.VirtualMachineReplicaSet) error {
 
-	needsSync := r.expectations.SatisfiedExpectations(client.ObjectKeyFromObject(vmr).String())
+	needsSync := r.Expectations.SatisfiedExpectations(client.ObjectKeyFromObject(vmr).String())
 	// Get controlled VMs
 	vms, err := r.getControlledVMs(ctx, vmr)
 	if err != nil {
@@ -157,7 +152,7 @@ func (r *VMReplicaSetReconciler) scaleVMs(ctx context.Context, vmr *virtv1alpha1
 	wg.Add(maxDiff)
 	if diff < 0 {
 		// Need to create VMs
-		r.expectations.ExpectCreations(client.ObjectKeyFromObject(vmr).String(), maxDiff)
+		r.Expectations.ExpectCreations(client.ObjectKeyFromObject(vmr).String(), maxDiff)
 		for i := 0; i < maxDiff; i++ {
 			go func() {
 				defer wg.Done()
@@ -174,7 +169,7 @@ func (r *VMReplicaSetReconciler) scaleVMs(ctx context.Context, vmr *virtv1alpha1
 		for _, vm := range vmToDelete {
 			keys = append(keys, client.ObjectKeyFromObject(vm).String())
 		}
-		r.expectations.ExpectDeletions(client.ObjectKeyFromObject(vmr).String(), keys)
+		r.Expectations.ExpectDeletions(client.ObjectKeyFromObject(vmr).String(), keys)
 		for _, vm := range vmToDelete {
 			go func(vm *virtv1alpha1.VirtualMachine) {
 				defer wg.Done()
@@ -227,7 +222,7 @@ func (r *VMReplicaSetReconciler) cleanVMs(ctx context.Context, vmr *virtv1alpha1
 
 func (r *VMReplicaSetReconciler) DeleteVM(ctx context.Context, vm *virtv1alpha1.VirtualMachine, obj client.Object) error {
 	if err := r.Delete(ctx, vm); err != nil && !apierrors.IsNotFound(err) {
-		r.expectations.DeletionObserved(client.ObjectKeyFromObject(obj).String(), client.ObjectKeyFromObject(vm).String())
+		r.Expectations.DeletionObserved(client.ObjectKeyFromObject(obj).String(), client.ObjectKeyFromObject(vm).String())
 		r.Recorder.Eventf(obj, corev1.EventTypeWarning, "FailedDelete",
 			"Error deleting virtual machine instance %s: %v", vm.ObjectMeta.Name, err)
 		return err
@@ -263,7 +258,7 @@ func (r *VMReplicaSetReconciler) createVM(ctx context.Context, template *virtv1a
 
 	// Create the VM
 	if err := r.Create(ctx, vm); err != nil {
-		r.expectations.CreationObserved(client.ObjectKeyFromObject(parentObject).String())
+		r.Expectations.CreationObserved(client.ObjectKeyFromObject(parentObject).String())
 		// only send an event if the namespace isn't terminating
 		if !apierrors.HasStatusCause(err, corev1.NamespaceTerminatingCause) {
 			r.Recorder.Eventf(parentObject, corev1.EventTypeWarning, "FailedCreate",
@@ -278,10 +273,9 @@ func (r *VMReplicaSetReconciler) createVM(ctx context.Context, template *virtv1a
 }
 
 func (r *VMReplicaSetReconciler) getControlledVMs(ctx context.Context, vmr *virtv1alpha1.VirtualMachineReplicaSet) ([]*virtv1alpha1.VirtualMachine, error) {
-	logger := log.FromContext(ctx)
 	// List all VMs in the namespace
-	var vmList virtv1alpha1.VirtualMachineList
-	if err := r.List(ctx, &vmList, client.InNamespace(vmr.Namespace), client.MatchingFields{"vmrUID": string(vmr.UID)}); err != nil {
+	var vmList *virtv1alpha1.VirtualMachineList
+	if err := r.List(ctx, vmList, client.InNamespace(vmr.Namespace), client.MatchingFields{"vmrUID": string(vmr.UID)}); err != nil {
 		return nil, err
 	}
 
@@ -292,12 +286,9 @@ func (r *VMReplicaSetReconciler) getControlledVMs(ctx context.Context, vmr *virt
 
 	// Filter for VMs controlled by this VMReplicaSet and match the selector
 	var controlled []*virtv1alpha1.VirtualMachine
-	var count int = 0
 	for _, vm := range vmList.Items {
 		if selector.Matches(labels.Set(vm.Labels)) {
 			controlled = append(controlled, &vm)
-			logger.Info(fmt.Sprintf("VM[%d]:", count), "vm", vm)
-			count++
 		}
 	}
 	return controlled, nil
@@ -396,7 +387,7 @@ func (r *VMReplicaSetReconciler) deleteVM(ctx context.Context, obj client.Object
 	rsKey := types.NamespacedName{Namespace: namespace, Name: controllerRef.Name}
 	vmKey := types.NamespacedName{Namespace: namespace, Name: vm.GetName()}
 
-	r.expectations.DeletionObserved(rsKey.String(), vmKey.String())
+	r.Expectations.DeletionObserved(rsKey.String(), vmKey.String())
 	queue.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(vmr)})
 }
 
@@ -445,7 +436,7 @@ func (r *VMReplicaSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 						rs := r.resolveControllerRef(vm.Namespace, controllerRef)
 						if rs != nil {
 							rsKey := client.ObjectKeyFromObject(rs)
-							r.expectations.CreationObserved(rsKey.String())
+							r.Expectations.CreationObserved(rsKey.String())
 							queue.Add(reconcile.Request{NamespacedName: rsKey})
 							return
 						}
