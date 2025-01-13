@@ -36,21 +36,21 @@ func (h *VMReplicaSetMutator) SetupWebhookWithManager(mgr ctrl.Manager) error {
 }
 
 func (h *VMReplicaSetMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	var vmr virtv1alpha1.VirtualMachineReplicaSet
-	if err := h.decoder.Decode(req, &vmr); err != nil {
+	var vmrs virtv1alpha1.VirtualMachineReplicaSet
+	if err := h.decoder.Decode(req, &vmrs); err != nil {
 		return admission.Errored(http.StatusBadRequest, fmt.Errorf("unmarshal VMReplicaSet: %s", err))
 	}
 
 	var err error
 	switch req.Operation {
 	case admissionv1.Create:
-		err = MutateVMReplicaSet(ctx, &vmr, nil)
+		err = MutateVMReplicaSet(ctx, &vmrs, nil)
 	case admissionv1.Update:
 		var oldVMR virtv1alpha1.VirtualMachineReplicaSet
 		if err := h.decoder.DecodeRaw(req.OldObject, &oldVMR); err != nil {
 			return admission.Errored(http.StatusBadRequest, fmt.Errorf("unmarshal old VMReplicaSet: %s", err))
 		}
-		err = MutateVMReplicaSet(ctx, &vmr, &oldVMR)
+		err = MutateVMReplicaSet(ctx, &vmrs, &oldVMR)
 	default:
 		return admission.Allowed("")
 	}
@@ -59,17 +59,17 @@ func (h *VMReplicaSetMutator) Handle(ctx context.Context, req admission.Request)
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
-	vmrJSON, err := json.Marshal(vmr)
+	vmrJSON, err := json.Marshal(vmrs)
 	if err != nil {
 		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("marshal VMReplicaSet: %s", err))
 	}
 	return admission.PatchResponseFromRaw(req.Object.Raw, vmrJSON)
 }
 
-func MutateVMReplicaSet(ctx context.Context, vmr *virtv1alpha1.VirtualMachineReplicaSet, oldVMR *virtv1alpha1.VirtualMachineReplicaSet) error {
-	if vmr.Spec.Replicas == nil {
+func MutateVMReplicaSet(ctx context.Context, vmrs *virtv1alpha1.VirtualMachineReplicaSet, oldVMR *virtv1alpha1.VirtualMachineReplicaSet) error {
+	if vmrs.Spec.Replicas == nil {
 		replicas := defaultReplicas
-		vmr.Spec.Replicas = &replicas
+		vmrs.Spec.Replicas = &replicas
 	}
 	return nil
 }
@@ -92,21 +92,21 @@ func (h *VMReplicaSetValidator) SetupWebhookWithManager(mgr ctrl.Manager) error 
 }
 
 func (h *VMReplicaSetValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	var vmr virtv1alpha1.VirtualMachineReplicaSet
-	if err := h.decoder.Decode(req, &vmr); err != nil {
+	var vmrs virtv1alpha1.VirtualMachineReplicaSet
+	if err := h.decoder.Decode(req, &vmrs); err != nil {
 		return admission.Errored(http.StatusBadRequest, fmt.Errorf("unmarshal VMReplicaSet: %s", err))
 	}
 
 	var errs field.ErrorList
 	switch req.Operation {
 	case admissionv1.Create:
-		errs = ValidateVMReplicaSet(ctx, &vmr, nil)
+		errs = ValidateVMReplicaSet(ctx, &vmrs, nil)
 	case admissionv1.Update:
-		var oldVMR virtv1alpha1.VirtualMachineReplicaSet
-		if err := h.decoder.DecodeRaw(req.OldObject, &oldVMR); err != nil {
+		var oldVmrs virtv1alpha1.VirtualMachineReplicaSet
+		if err := h.decoder.DecodeRaw(req.OldObject, &oldVmrs); err != nil {
 			return admission.Errored(http.StatusBadRequest, fmt.Errorf("unmarshal old VMReplicaSet: %s", err))
 		}
-		errs = ValidateVMReplicaSet(ctx, &vmr, &oldVMR)
+		errs = ValidateVMReplicaSet(ctx, &vmrs, &oldVmrs)
 	default:
 		return admission.Allowed("")
 	}
@@ -117,11 +117,11 @@ func (h *VMReplicaSetValidator) Handle(ctx context.Context, req admission.Reques
 	return admission.Allowed("")
 }
 
-func ValidateVMReplicaSet(ctx context.Context, vmr *virtv1alpha1.VirtualMachineReplicaSet, oldVMR *virtv1alpha1.VirtualMachineReplicaSet) field.ErrorList {
+func ValidateVMReplicaSet(ctx context.Context, vmrs *virtv1alpha1.VirtualMachineReplicaSet, oldVmrs *virtv1alpha1.VirtualMachineReplicaSet) field.ErrorList {
 	var errs field.ErrorList
-	errs = append(errs, ValidateVMReplicaSetSpec(ctx, &vmr.Spec, field.NewPath("spec"))...)
-	if oldVMR != nil {
-		errs = append(errs, ValidateVMReplicaSetUpdate(ctx, vmr, oldVMR)...)
+	errs = append(errs, ValidateVMReplicaSetSpec(ctx, &vmrs.Spec, field.NewPath("spec"))...)
+	if oldVmrs != nil {
+		errs = append(errs, ValidateVMReplicaSetUpdate(ctx, vmrs, oldVmrs)...)
 	}
 	return errs
 }
@@ -164,15 +164,15 @@ func ValidateVMReplicaSetSpec(ctx context.Context, spec *virtv1alpha1.VirtualMac
 	return errs
 }
 
-func ValidateVMReplicaSetUpdate(ctx context.Context, vmr *virtv1alpha1.VirtualMachineReplicaSet, oldVMR *virtv1alpha1.VirtualMachineReplicaSet) field.ErrorList {
+func ValidateVMReplicaSetUpdate(ctx context.Context, vmrs *virtv1alpha1.VirtualMachineReplicaSet, oldVmrs *virtv1alpha1.VirtualMachineReplicaSet) field.ErrorList {
 	var errs field.ErrorList
 
 	// Validate immutable fields
-	if !reflect.DeepEqual(vmr.Spec.Selector, oldVMR.Spec.Selector) {
+	if !reflect.DeepEqual(vmrs.Spec.Selector, oldVmrs.Spec.Selector) {
 		errs = append(errs, field.Forbidden(field.NewPath("spec", "selector"), "field is immutable"))
 	}
 
-	if !reflect.DeepEqual(vmr.Spec.Template.Spec, oldVMR.Spec.Template.Spec) {
+	if !reflect.DeepEqual(vmrs.Spec.Template.Spec, oldVmrs.Spec.Template.Spec) {
 		errs = append(errs, field.Forbidden(field.NewPath("spec", "template", "spec"), "field is immutable"))
 	}
 
