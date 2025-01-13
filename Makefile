@@ -11,6 +11,15 @@ GOOS ?= $(shell go env GOOS)
 
 all: test
 
+# kubectl-virt plugin
+.PHONY: kubectl-virt
+kubectl-virt: $(LOCALBIN)
+	CGO_ENABLED=0 go build -o $(LOCALBIN)/kubectl-virt cmd/kubectl-virt/main.go
+
+.PHONY: install-kubectl-virt
+install-kubectl-virt: $(LOCALBIN)
+	CGO_ENABLED=0 go build -o /usr/local/bin/kubectl-virt cmd/kubectl-virt/main.go
+
 generate:
 	iidfile=$$(mktemp /tmp/iid-XXXXXX) && \
 	docker build -f hack/Dockerfile --iidfile $$iidfile . && \
@@ -70,7 +79,7 @@ e2e-image:
 e2e: kind kubectl cmctl skaffold kuttl e2e-image
 	echo "e2e kind cluster: $(E2E_KIND_CLUSTER_NAME)"
 
-	$(KIND) create cluster --config test/e2e/config/kind/config.yaml --name $(E2E_KIND_CLUSTER_NAME) --kubeconfig $(E2E_KIND_CLUSTER_KUBECONFIG)
+	$(KIND) create cluster --retain --config test/e2e/config/kind/config.yaml --name $(E2E_KIND_CLUSTER_NAME) --kubeconfig $(E2E_KIND_CLUSTER_KUBECONFIG)
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) virt-controller:e2e
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) virt-daemon:e2e
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) virt-prerunner:e2e
@@ -125,4 +134,4 @@ e2e: kind kubectl cmctl skaffold kuttl e2e-image
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) smartxworks/virtink-container-rootfs-ubuntu
 	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUTTL) test --config test/e2e/kuttl-test.yaml
 
-	$(KIND) delete cluster --name $(E2E_KIND_CLUSTER_NAME)
+	# $(KIND) delete cluster --name $(E2E_KIND_CLUSTER_NAME)

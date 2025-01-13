@@ -14,12 +14,6 @@ func deepcopyVMsLabelSet(template *virtv1alpha1.VirtualMachineTemplateSpec) labe
 	return desiredLabels
 }
 
-func deepcopyVMsFinalizers(template *virtv1alpha1.VirtualMachineTemplateSpec) []string {
-	desiredFinalizers := make([]string, len(template.ObjectMeta.Finalizers))
-	copy(desiredFinalizers, template.ObjectMeta.Finalizers)
-	return desiredFinalizers
-}
-
 func deepcopyVMsAnnotationSet(template *virtv1alpha1.VirtualMachineTemplateSpec) labels.Set {
 	desiredAnnotations := make(labels.Set)
 	for k, v := range template.ObjectMeta.Annotations {

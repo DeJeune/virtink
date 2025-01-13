@@ -1,0 +1,41 @@
+apiVersion: kuttl.dev/v1beta1
+kind: TestAssert
+timeout: 300
+---
+apiVersion: virt.virtink.smartx.com/v1alpha1
+kind: VirtualMachineReplicaSet
+metadata:
+  name: test-vmr
+  namespace: default
+status:
+  replicas: 2
+  readyReplicas: 2
+  availableReplicas: 2
+---
+apiVersion: virt.virtink.smartx.com/v1alpha1
+kind: VirtualMachine
+metadata:
+  namespace: default
+  labels:
+    app: test-vm
+status:
+  phase: Running
+  conditions:
+    - type: Ready
+      status: "True"
+    - type: Migratable
+      status: "False"
+---
+apiVersion: virt.virtink.smartx.com/v1alpha1
+kind: VirtualMachine
+metadata:
+  namespace: default
+  labels:
+    app: test-vm
+status:
+  phase: Running
+  conditions:
+    - type: Ready
+      status: "True"
+    - type: Migratable
+      status: "False" 

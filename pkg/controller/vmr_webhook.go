@@ -141,7 +141,12 @@ func ValidateVMReplicaSetSpec(ctx context.Context, spec *virtv1alpha1.VirtualMac
 		errs = append(errs, field.Invalid(fieldPath.Child("replicas"), *spec.Replicas, "must be greater than or equal to 0"))
 	}
 
-	// Validate template
+	// Validate template existence and labels
+	if spec.Template == nil {
+		errs = append(errs, field.Required(fieldPath.Child("template"), ""))
+		return errs
+	}
+
 	if spec.Template.ObjectMeta.Labels == nil {
 		errs = append(errs, field.Required(fieldPath.Child("template", "metadata", "labels"), ""))
 	}
@@ -155,9 +160,6 @@ func ValidateVMReplicaSetSpec(ctx context.Context, spec *virtv1alpha1.VirtualMac
 			errs = append(errs, field.Invalid(fieldPath.Child("template", "metadata", "labels"), spec.Template.ObjectMeta.Labels, "must match selector"))
 		}
 	}
-
-	// Validate VM template spec
-	errs = append(errs, ValidateVMSpec(ctx, &spec.Template.Spec, fieldPath.Child("template", "spec"))...)
 
 	return errs
 }

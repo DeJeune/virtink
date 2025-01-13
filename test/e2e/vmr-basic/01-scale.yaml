@@ -1,0 +1,5 @@
+apiVersion: kuttl.dev/v1beta1
+kind: TestStep
+timeout: 300
+commands:
+  - command: kubectl patch virtualmachinereplicaset test-vmr -p '{"spec":{"replicas":3}}' --type=merge

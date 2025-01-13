@@ -73,6 +73,8 @@ rules:
   - virt.virtink.smartx.com
   resources:
   - virtualmachinemigrations/status
+  - virtualmachinereplicasets/scale
+  - virtualmachinereplicasets/status
   - virtualmachines/status
   verbs:
   - get
@@ -81,6 +83,7 @@ rules:
 - apiGroups:
   - virt.virtink.smartx.com
   resources:
+  - virtualmachinereplicasets
   - virtualmachines
   verbs:
   - create

@@ -33,8 +33,6 @@ import (
 )
 
 const (
-	// VMReplicaSetFinalizer is the name of the finalizer added to VMReplicaSets
-	VMReplicaSetFinalizer = "virtink.io/vmrs-protection"
 	defaultReplicas       = int32(1)
 	requeueInterval       = time.Minute
 	deleteRequeueInterval = time.Second * 10
@@ -53,9 +51,10 @@ type VMReplicaSetReconciler struct {
 
 // +kubebuilder:rbac:groups=virt.virtink.smartx.com,resources=virtualmachinereplicasets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=virt.virtink.smartx.com,resources=virtualmachinereplicasets/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=virt.virtink.smartx.com,resources=virtualmachinereplicasets/finalizers,verbs=update
+// +kubebuilder:rbac:groups=virt.virtink.smartx.com,resources=virtualmachinereplicasets/scale,verbs=get;update;patch
 // +kubebuilder:rbac:groups=virt.virtink.smartx.com,resources=virtualmachines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;update;patch
+
 // Reconcile handles the reconciliation loop for VMReplicaSet resources
 // It ensures the desired state matches the actual state in the cluster
 func (r *VMReplicaSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -179,9 +178,6 @@ func (r *VMReplicaSetReconciler) scaleVMs(ctx context.Context, vmr *virtv1alpha1
 					errChan <- err
 					return
 				}
-				r.Recorder.Eventf(vmr, corev1.EventTypeNormal, "SuccessfulDelete",
-					"Deleted virtual machine instance %s", vm.ObjectMeta.Name)
-
 			}(vm)
 		}
 	}
@@ -207,8 +203,6 @@ func (r *VMReplicaSetReconciler) cleanVMs(ctx context.Context, vmr *virtv1alpha1
 				errChan <- err
 				return
 			}
-			r.Recorder.Eventf(vmr, corev1.EventTypeNormal, "SuccessfulDelete",
-				"Cleaned up virtual machine: %v", targetVM.Name)
 		}(vm)
 	}
 	wg.Wait()
@@ -274,7 +268,7 @@ func (r *VMReplicaSetReconciler) createVM(ctx context.Context, template *virtv1a
 
 func (r *VMReplicaSetReconciler) getControlledVMs(ctx context.Context, vmr *virtv1alpha1.VirtualMachineReplicaSet) ([]*virtv1alpha1.VirtualMachine, error) {
 	// List all VMs in the namespace
-	var vmList *virtv1alpha1.VirtualMachineList
+	vmList := &virtv1alpha1.VirtualMachineList{}
 	if err := r.List(ctx, vmList, client.InNamespace(vmr.Namespace), client.MatchingFields{"vmrUID": string(vmr.UID)}); err != nil {
 		return nil, err
 	}

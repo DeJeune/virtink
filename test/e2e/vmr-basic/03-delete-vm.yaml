@@ -1,0 +1,10 @@
+apiVersion: kuttl.dev/v1beta1
+kind: TestStep
+timeout: 300
+commands:
+  # First unpause the VMReplicaSet
+  - command: kubectl patch virtualmachinereplicaset test-vmr -p '{"spec":{"paused":false}}' --type=merge
+  # Wait for the unpause to take effect
+  - command: sleep 10
+  # Delete one VM and verify it gets recreated
+  - command: kubectl delete virtualmachine -l app=test-vm
