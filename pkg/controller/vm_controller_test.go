@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gstruct"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -72,6 +73,29 @@ var _ = Describe("VM controller", func() {
 				var vmPod corev1.Pod
 				return k8sClient.Get(ctx, vmPodKey, &vmPod) == nil
 			}).Should(BeTrue())
+		})
+
+		It("should set VM as owner reference of the VM pod", func() {
+			var vm virtv1alpha1.VirtualMachine
+			Eventually(func() bool {
+				Expect(k8sClient.Get(ctx, vmKey, &vm)).To(Succeed())
+				return vm.Status.VMPodName != ""
+			}).Should(BeTrue())
+
+			vmPodKey := types.NamespacedName{Name: vm.Status.VMPodName, Namespace: vmKey.Namespace}
+			var vmPod corev1.Pod
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, vmPodKey, &vmPod) == nil
+			}).Should(BeTrue())
+
+			// Verify owner reference
+			Expect(vmPod.OwnerReferences).To(HaveLen(1))
+			ownerRef := vmPod.OwnerReferences[0]
+			Expect(ownerRef.APIVersion).To(Equal(virtv1alpha1.SchemeGroupVersion.String()))
+			Expect(ownerRef.Kind).To(Equal("VirtualMachine"))
+			Expect(ownerRef.Name).To(Equal(vm.Name))
+			Expect(ownerRef.UID).To(Equal(vm.UID))
+			Expect(ownerRef.Controller).To(PointTo(BeTrue()))
 		})
 	})
 

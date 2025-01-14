@@ -20,7 +20,7 @@ func TestValidateVMReplicaSet(t *testing.T) {
 					"app": "test",
 				},
 			},
-			Template: virtv1alpha1.VirtualMachineTemplateSpec{
+			Template: &virtv1alpha1.VirtualMachineTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
 						"app": "test",
@@ -43,68 +43,68 @@ func TestValidateVMReplicaSet(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		vmr           *virtv1alpha1.VirtualMachineReplicaSet
+		vmrs          *virtv1alpha1.VirtualMachineReplicaSet
 		oldVMR        *virtv1alpha1.VirtualMachineReplicaSet
 		invalidFields []string
 	}{
 		{
 			name: "valid VMR",
-			vmr:  validVMR,
+			vmrs: validVMR,
 		},
 		{
 			name: "missing selector",
-			vmr: func() *virtv1alpha1.VirtualMachineReplicaSet {
-				vmr := validVMR.DeepCopy()
-				vmr.Spec.Selector = nil
-				return vmr
+			vmrs: func() *virtv1alpha1.VirtualMachineReplicaSet {
+				vmrs := validVMR.DeepCopy()
+				vmrs.Spec.Selector = nil
+				return vmrs
 			}(),
 			invalidFields: []string{"spec.selector"},
 		},
 		{
 			name: "negative replicas",
-			vmr: func() *virtv1alpha1.VirtualMachineReplicaSet {
-				vmr := validVMR.DeepCopy()
-				vmr.Spec.Replicas = int32Ptr(-1)
-				return vmr
+			vmrs: func() *virtv1alpha1.VirtualMachineReplicaSet {
+				vmrs := validVMR.DeepCopy()
+				vmrs.Spec.Replicas = int32Ptr(-1)
+				return vmrs
 			}(),
 			invalidFields: []string{"spec.replicas"},
 		},
 		{
 			name: "missing template labels",
-			vmr: func() *virtv1alpha1.VirtualMachineReplicaSet {
-				vmr := validVMR.DeepCopy()
-				vmr.Spec.Template.Labels = nil
-				return vmr
+			vmrs: func() *virtv1alpha1.VirtualMachineReplicaSet {
+				vmrs := validVMR.DeepCopy()
+				vmrs.Spec.Template.ObjectMeta.Labels = nil
+				return vmrs
 			}(),
 			invalidFields: []string{"spec.template.metadata.labels"},
 		},
 		{
 			name: "selector not matching template labels",
-			vmr: func() *virtv1alpha1.VirtualMachineReplicaSet {
-				vmr := validVMR.DeepCopy()
-				vmr.Spec.Template.Labels = map[string]string{
+			vmrs: func() *virtv1alpha1.VirtualMachineReplicaSet {
+				vmrs := validVMR.DeepCopy()
+				vmrs.Spec.Template.ObjectMeta.Labels = map[string]string{
 					"app": "different",
 				}
-				return vmr
+				return vmrs
 			}(),
 			invalidFields: []string{"spec.template.metadata.labels"},
 		},
 		{
 			name: "update immutable selector",
-			vmr: func() *virtv1alpha1.VirtualMachineReplicaSet {
-				vmr := validVMR.DeepCopy()
-				vmr.Spec.Selector.MatchLabels["app"] = "changed"
-				return vmr
+			vmrs: func() *virtv1alpha1.VirtualMachineReplicaSet {
+				vmrs := validVMR.DeepCopy()
+				vmrs.Spec.Selector.MatchLabels["app"] = "changed"
+				return vmrs
 			}(),
 			oldVMR:        validVMR,
 			invalidFields: []string{"spec.template.metadata.labels", "spec.selector"},
 		},
 		{
 			name: "update immutable template spec",
-			vmr: func() *virtv1alpha1.VirtualMachineReplicaSet {
-				vmr := validVMR.DeepCopy()
-				vmr.Spec.Template.Spec.Instance.CPU.Sockets = 2
-				return vmr
+			vmrs: func() *virtv1alpha1.VirtualMachineReplicaSet {
+				vmrs := validVMR.DeepCopy()
+				vmrs.Spec.Template.Spec.Instance.CPU.Sockets = 2
+				return vmrs
 			}(),
 			oldVMR:        validVMR,
 			invalidFields: []string{"spec.template.spec"},
@@ -113,7 +113,7 @@ func TestValidateVMReplicaSet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := ValidateVMReplicaSet(context.Background(), tt.vmr, tt.oldVMR)
+			errs := ValidateVMReplicaSet(context.Background(), tt.vmrs, tt.oldVMR)
 			if len(tt.invalidFields) == 0 {
 				assert.Empty(t, errs)
 			} else {
@@ -131,13 +131,13 @@ func TestValidateVMReplicaSet(t *testing.T) {
 func TestMutateVMReplicaSet(t *testing.T) {
 	tests := []struct {
 		name     string
-		vmr      *virtv1alpha1.VirtualMachineReplicaSet
+		vmrs     *virtv1alpha1.VirtualMachineReplicaSet
 		oldVMR   *virtv1alpha1.VirtualMachineReplicaSet
 		expected *virtv1alpha1.VirtualMachineReplicaSet
 	}{
 		{
 			name: "set default replicas",
-			vmr: &virtv1alpha1.VirtualMachineReplicaSet{
+			vmrs: &virtv1alpha1.VirtualMachineReplicaSet{
 				Spec: virtv1alpha1.VirtualMachineReplicaSetSpec{},
 			},
 			expected: &virtv1alpha1.VirtualMachineReplicaSet{
@@ -148,7 +148,7 @@ func TestMutateVMReplicaSet(t *testing.T) {
 		},
 		{
 			name: "keep existing replicas",
-			vmr: &virtv1alpha1.VirtualMachineReplicaSet{
+			vmrs: &virtv1alpha1.VirtualMachineReplicaSet{
 				Spec: virtv1alpha1.VirtualMachineReplicaSetSpec{
 					Replicas: int32Ptr(3),
 				},
@@ -163,9 +163,9 @@ func TestMutateVMReplicaSet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := MutateVMReplicaSet(context.Background(), tt.vmr, tt.oldVMR)
+			err := MutateVMReplicaSet(context.Background(), tt.vmrs, tt.oldVMR)
 			assert.NoError(t, err)
-			assert.Equal(t, tt.expected.Spec.Replicas, tt.vmr.Spec.Replicas)
+			assert.Equal(t, tt.expected.Spec.Replicas, tt.vmrs.Spec.Replicas)
 		})
 	}
 }

@@ -16,6 +16,7 @@ import (
 
 	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
 	"github.com/smartxworks/virtink/pkg/controller"
+	"github.com/smartxworks/virtink/pkg/controller/expectations"
 )
 
 var (
@@ -94,6 +95,26 @@ func main() {
 
 	if err := (&controller.VMMValidator{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "VMMValidator")
+		os.Exit(1)
+	}
+
+	if err := (&controller.VMReplicaSetReconciler{
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		Recorder:     mgr.GetEventRecorderFor("virt-controller"),
+		Expectations: expectations.NewUIDTrackingControllerExpectations(expectations.NewControllerExpectations()),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "VMReplicaSet")
+		os.Exit(1)
+	}
+
+	if err := (&controller.VMReplicaSetValidator{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "VMReplicaSetValidator")
+		os.Exit(1)
+	}
+
+	if err := (&controller.VMReplicaSetMutator{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "VMReplicaSetMutator")
 		os.Exit(1)
 	}
 

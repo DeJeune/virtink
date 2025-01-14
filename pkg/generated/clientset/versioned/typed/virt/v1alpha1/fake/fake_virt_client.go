@@ -20,6 +20,10 @@ func (c *FakeVirtV1alpha1) VirtualMachineMigrations(namespace string) v1alpha1.V
 	return &FakeVirtualMachineMigrations{c, namespace}
 }
 
+func (c *FakeVirtV1alpha1) VirtualMachineReplicaSets(namespace string) v1alpha1.VirtualMachineReplicaSetInterface {
+	return &FakeVirtualMachineReplicaSets{c, namespace}
+}
+
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeVirtV1alpha1) RESTClient() rest.Interface {

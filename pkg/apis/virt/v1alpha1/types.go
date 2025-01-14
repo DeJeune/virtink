@@ -377,15 +377,16 @@ type VirtualMachineReplicaSetSpec struct {
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`
 
 	// Template describes the VirtualMachine that will be created.
-	Template VirtualMachineTemplateSpec `json:"template"`
+	Template *VirtualMachineTemplateSpec `json:"template"`
 }
 
 // VirtualMachineTemplateSpec describes the data a VirtualMachine should have when created from a template
 type VirtualMachineTemplateSpec struct {
 	// Standard object's metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
-	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +nullable
+	ObjectMeta metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Specification of the desired behavior of the VirtualMachine.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status

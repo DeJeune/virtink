@@ -1,0 +1,13 @@
+---
+apiVersion: virt.virtink.smartx.com/v1alpha1
+kind: VirtualMachineReplicaSet
+metadata:
+  name: test-vmr
+  namespace: default
+status:
+  conditions:
+    - type: "ReplicaPaused"
+      status: "True"
+  replicas: 3
+  readyReplicas: 3
+  availableReplicas: 3 

@@ -10,6 +10,11 @@ webhooks:
       service:
         name: virt-controller
         namespace: virtink-system
+  - name: mutate.virtualmachinereplicaset.v1alpha1.virt.virtink.smartx.com
+    clientConfig:
+      service:
+        name: virt-controller
+        namespace: virtink-system
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -24,6 +29,11 @@ webhooks:
         name: virt-controller
         namespace: virtink-system
   - name: validate.virtualmachinemigration.v1alpha1.virt.virtink.smartx.com
+    clientConfig:
+      service:
+        name: virt-controller
+        namespace: virtink-system
+  - name: validate.virtualmachinereplicaset.v1alpha1.virt.virtink.smartx.com
     clientConfig:
       service:
         name: virt-controller

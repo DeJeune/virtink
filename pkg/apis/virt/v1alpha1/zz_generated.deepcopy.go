@@ -716,7 +716,11 @@ func (in *VirtualMachineReplicaSetSpec) DeepCopyInto(out *VirtualMachineReplicaS
 		*out = new(v1.LabelSelector)
 		(*in).DeepCopyInto(*out)
 	}
-	in.Template.DeepCopyInto(&out.Template)
+	if in.Template != nil {
+		in, out := &in.Template, &out.Template
+		*out = new(VirtualMachineTemplateSpec)
+		(*in).DeepCopyInto(*out)
+	}
 	return
 }
 
