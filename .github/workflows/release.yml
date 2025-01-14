@@ -27,50 +27,50 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           file: build/virt-prerunner/Dockerfile
-          tags: smartxworks/virt-prerunner:${{ steps.get_version.outputs.version }}
+          tags: jeuneastre/virt-prerunner:${{ steps.get_version.outputs.version }}
           platforms: linux/amd64,linux/arm64
           push: true
 
       - uses: docker/build-push-action@v2
         with:
           file: build/virt-controller/Dockerfile
-          build-args: PRERUNNER_IMAGE=smartxworks/virt-prerunner:${{ steps.get_version.outputs.version }}@${{ steps.build_virt_prerunner.outputs.digest }}
-          tags: smartxworks/virt-controller:${{ steps.get_version.outputs.version }}
+          build-args: PRERUNNER_IMAGE=jeuneastre/virt-prerunner:${{ steps.get_version.outputs.version }}@${{ steps.build_virt_prerunner.outputs.digest }}
+          tags: jeuneastre/virt-controller:${{ steps.get_version.outputs.version }}
           platforms: linux/amd64,linux/arm64
           push: true
 
       - uses: docker/build-push-action@v2
         with:
           file: build/virt-daemon/Dockerfile
-          tags: smartxworks/virt-daemon:${{ steps.get_version.outputs.version }}
+          tags: jeuneastre/virt-daemon:${{ steps.get_version.outputs.version }}
           platforms: linux/amd64,linux/arm64
           push: true
 
       - uses: docker/build-push-action@v2
         with:
           file: build/virtink-container-disk-base/Dockerfile
-          tags: smartxworks/virtink-container-disk-base
+          tags: jeuneastre/virtink-container-disk-base
           platforms: linux/amd64,linux/arm64
           push: true
 
       - uses: docker/build-push-action@v2
         with:
           file: build/virtink-kernel-base/Dockerfile
-          tags: smartxworks/virtink-kernel-base
+          tags: jeuneastre/virtink-kernel-base
           platforms: linux/amd64,linux/arm64
           push: true
 
       - uses: docker/build-push-action@v2
         with:
           file: build/virtink-container-rootfs-base/Dockerfile
-          tags: smartxworks/virtink-container-rootfs-base
+          tags: jeuneastre/virtink-container-rootfs-base
           platforms: linux/amd64,linux/arm64
           push: true
 
       - run: |
           curl -sLo /tmp/skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64
           chmod +x /tmp/skaffold
-          /tmp/skaffold render --default-repo=smartxworks --offline=true > virtink.yaml
+          /tmp/skaffold render --default-repo=jeuneastre --offline=true > virtink.yaml
 
       - uses: softprops/action-gh-release@v1
         with:
