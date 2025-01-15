@@ -699,6 +699,9 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 					if vmPod.Spec.NodeSelector == nil {
 						vmPod.Spec.NodeSelector = map[string]string{}
 					}
+					if vmPod.Annotations == nil {
+						vmPod.Annotations = make(map[string]string)
+					}
 					vmPod.Spec.NodeSelector["ovn.kubernetes.io/ovs_dp_type"] = "userspace"
 					vmPod.Annotations["ovn-dpdk.default.ovn.kubernetes.io/mac_address"] = iface.MAC
 
@@ -769,6 +772,9 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 		networksJSON, err := json.Marshal(networks)
 		if err != nil {
 			return nil, fmt.Errorf("marshal networks: %s", err)
+		}
+		if vmPod.Annotations == nil {
+			vmPod.Annotations = make(map[string]string)
 		}
 		vmPod.Annotations["k8s.v1.cni.cncf.io/networks"] = string(networksJSON)
 	}

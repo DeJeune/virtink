@@ -1,0 +1,58 @@
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: bridge-net
+spec:
+  config: |-
+    {
+      "cniVersion": "0.3.1",
+      "name": "bridge-net",
+      "type": "bridge",
+      "bridge": "br0",
+      "ipam": {
+        "type": "host-local",
+        "subnet": "172.17.0.0/16"
+      }
+    }
+---
+apiVersion: virt.virtink.smartx.com/v1alpha1
+kind: VirtualMachineReplicaSet
+metadata:
+  name: ubuntu-replicaset
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ubuntu
+  template:
+    metadata:
+      labels:
+        app: ubuntu
+    spec:
+      instance:
+        memory:
+          size: 1Gi
+        disks:
+          - name: ubuntu
+          - name: cloud-init
+        interfaces:
+          - name: pod
+          - name: bridge
+      volumes:
+        - name: ubuntu
+          containerDisk:
+            image: smartxworks/virtink-container-disk-ubuntu
+        - name: cloud-init
+          cloudInit:
+            userData: |-
+              #cloud-config
+              password: password
+              chpasswd: { expire: False }
+              ssh_pwauth: True
+      networks:
+        - name: pod
+          pod: {}
+        - name: bridge
+          multus: 
+            networkName: bridge-net
