@@ -17,8 +17,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
-	"github.com/smartxworks/virtink/pkg/controller/expectations"
+	virtv1alpha1 "github.com/DeJeune/virtink/pkg/apis/virt/v1alpha1"
+	"github.com/DeJeune/virtink/pkg/controller/expectations"
 )
 
 var (

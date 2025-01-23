@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
-	virtclient "github.com/smartxworks/virtink/pkg/generated/clientset/versioned"
+	virtv1alpha1 "github.com/DeJeune/virtink/pkg/apis/virt/v1alpha1"
+	virtclient "github.com/DeJeune/virtink/pkg/generated/clientset/versioned"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"

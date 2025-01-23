@@ -28,12 +28,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
-	"github.com/smartxworks/virtink/pkg/cloudhypervisor"
-	"github.com/smartxworks/virtink/pkg/daemon/cgroup"
-	"github.com/smartxworks/virtink/pkg/daemon/pid"
-	"github.com/smartxworks/virtink/pkg/tlsutil"
-	"github.com/smartxworks/virtink/pkg/volumeutil"
+	virtv1alpha1 "github.com/DeJeune/virtink/pkg/apis/virt/v1alpha1"
+	"github.com/DeJeune/virtink/pkg/cloudhypervisor"
+	"github.com/DeJeune/virtink/pkg/daemon/cgroup"
+	"github.com/DeJeune/virtink/pkg/daemon/pid"
+	"github.com/DeJeune/virtink/pkg/tlsutil"
+	"github.com/DeJeune/virtink/pkg/volumeutil"
 )
 
 const (

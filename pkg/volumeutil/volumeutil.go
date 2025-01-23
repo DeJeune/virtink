@@ -10,7 +10,7 @@ import (
 	cdiv1beta1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
+	virtv1alpha1 "github.com/DeJeune/virtink/pkg/apis/virt/v1alpha1"
 )
 
 func IsBlock(ctx context.Context, c client.Client, namespace string, volume virtv1alpha1.Volume) (bool, error) {

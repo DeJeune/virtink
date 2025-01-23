@@ -23,9 +23,9 @@ import (
 	"github.com/subgraph/libmacouflage"
 	"github.com/vishvananda/netlink"
 
-	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
-	"github.com/smartxworks/virtink/pkg/cloudhypervisor"
-	"github.com/smartxworks/virtink/pkg/cpuset"
+	virtv1alpha1 "github.com/DeJeune/virtink/pkg/apis/virt/v1alpha1"
+	"github.com/DeJeune/virtink/pkg/cloudhypervisor"
+	"github.com/DeJeune/virtink/pkg/cpuset"
 )
 
 func main() {

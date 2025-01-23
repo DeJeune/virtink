@@ -3,7 +3,7 @@ package controller
 import (
 	"k8s.io/apimachinery/pkg/labels"
 
-	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
+	virtv1alpha1 "github.com/DeJeune/virtink/pkg/apis/virt/v1alpha1"
 )
 
 func deepcopyVMsLabelSet(template *virtv1alpha1.VirtualMachineTemplateSpec) labels.Set {

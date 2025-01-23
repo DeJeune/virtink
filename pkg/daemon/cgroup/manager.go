@@ -11,8 +11,8 @@ import (
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/opencontainers/runc/libcontainer/configs"
 
-	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
-	"github.com/smartxworks/virtink/pkg/daemon/pid"
+	virtv1alpha1 "github.com/DeJeune/virtink/pkg/apis/virt/v1alpha1"
+	"github.com/DeJeune/virtink/pkg/daemon/pid"
 )
 
 type Manager interface {

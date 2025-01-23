@@ -1,4 +1,4 @@
-module github.com/smartxworks/virtink
+module github.com/DeJeune/virtink
 
 go 1.23.4
 
@@ -20,6 +20,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/subgraph/libmacouflage v0.0.1
 	github.com/vishvananda/netlink v1.3.0
+	go.uber.org/zap v1.27.0
 	golang.org/x/sys v0.28.0
 	google.golang.org/grpc v1.68.1
 	gopkg.in/fsnotify.v1 v1.4.7
@@ -29,6 +30,7 @@ require (
 	k8s.io/apiserver v0.31.3
 	k8s.io/client-go v0.31.3
 	k8s.io/kubelet v0.31.3
+	k8s.io/utils v0.0.0-20241104163129-6fe5fd82f078
 	kubevirt.io/containerized-data-importer-api v1.61.0
 	sigs.k8s.io/controller-runtime v0.19.3
 	sigs.k8s.io/controller-tools v0.16.5
@@ -91,7 +93,6 @@ require (
 	github.com/vmihailenco/msgpack v4.0.4+incompatible // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/exp v0.0.0-20241204233417-43b7b7cde48d // indirect
 	golang.org/x/mod v0.22.0 // indirect
 	golang.org/x/net v0.32.0 // indirect
@@ -114,7 +115,6 @@ require (
 	k8s.io/apiextensions-apiserver v0.31.3 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20241127205056-99599406b04f // indirect
-	k8s.io/utils v0.0.0-20241104163129-6fe5fd82f078 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.2.4 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.3 // indirect

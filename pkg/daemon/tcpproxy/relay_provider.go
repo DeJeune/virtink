@@ -10,7 +10,7 @@ import (
 
 	"inet.af/tcpproxy"
 
-	"github.com/smartxworks/virtink/pkg/daemon"
+	"github.com/DeJeune/virtink/pkg/daemon"
 )
 
 func NewRelayProvider() daemon.RelayProvider {

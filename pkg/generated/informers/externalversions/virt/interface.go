@@ -3,8 +3,8 @@
 package virt
 
 import (
-	internalinterfaces "github.com/smartxworks/virtink/pkg/generated/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/smartxworks/virtink/pkg/generated/informers/externalversions/virt/v1alpha1"
+	internalinterfaces "github.com/DeJeune/virtink/pkg/generated/informers/externalversions/internalinterfaces"
+	v1alpha1 "github.com/DeJeune/virtink/pkg/generated/informers/externalversions/virt/v1alpha1"
 )
 
 // Interface provides access to each of this group's versions.

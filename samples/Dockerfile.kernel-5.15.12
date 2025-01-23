@@ -23,6 +23,6 @@ RUN set -eux; \
         *) echo >&2 "error: unsupported architecture '$(uname -m)'"; exit 1 ;; \
     esac
 
-FROM smartxworks/virtink-kernel-base
+FROM jeuneastre/virtink-kernel-base
 
 COPY --from=builder /vmlinux /vmlinux

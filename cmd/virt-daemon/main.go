@@ -12,10 +12,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
-	"github.com/smartxworks/virtink/pkg/daemon"
-	"github.com/smartxworks/virtink/pkg/daemon/deviceplugin"
-	"github.com/smartxworks/virtink/pkg/daemon/tcpproxy"
+	virtv1alpha1 "github.com/DeJeune/virtink/pkg/apis/virt/v1alpha1"
+	"github.com/DeJeune/virtink/pkg/daemon"
+	"github.com/DeJeune/virtink/pkg/daemon/deviceplugin"
+	"github.com/DeJeune/virtink/pkg/daemon/tcpproxy"
 )
 
 var (
