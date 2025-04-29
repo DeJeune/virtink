@@ -432,7 +432,7 @@ func (r *VMReconciler) getCloudHypervisorClient(vm *virtv1alpha1.VirtualMachine)
 }
 
 func getVMDataDirPath(vm *virtv1alpha1.VirtualMachine) string {
-	return filepath.Join("var/lib/kubelet/pods", string(vm.Status.VMPodUID), "volumes/kubernetes.io~empty-dir/virtink/")
+	return filepath.Join("/var/lib/kubelet/pods", string(vm.Status.VMPodUID), "volumes/kubernetes.io~empty-dir/virtink/")
 }
 
 func (r *VMReconciler) getMigrationTargetCloudHypervisorClient(vm *virtv1alpha1.VirtualMachine) *cloudhypervisor.Client {

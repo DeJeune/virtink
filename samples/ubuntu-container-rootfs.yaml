@@ -1,6 +1,7 @@
 apiVersion: virt.virtink.smartx.com/v1alpha1
 kind: VirtualMachine
 metadata:
+  namespace: stellar
   name: ubuntu-container-rootfs
 spec:
   instance:
@@ -14,6 +15,7 @@ spec:
       - name: cloud-init
     interfaces:
       - name: pod
+      - name: overlay
   volumes:
     - name: ubuntu
       containerRootfs:
@@ -29,3 +31,6 @@ spec:
   networks:
     - name: pod
       pod: {}
+    - name: overlay
+      multus:
+        networkName: overlay
