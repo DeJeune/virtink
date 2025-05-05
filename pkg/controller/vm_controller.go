@@ -583,7 +583,17 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 				return nil, err
 			}
 			if !ready {
-				return nil, reconcileError{Result: ctrl.Result{RequeueAfter: time.Minute}}
+				if volume.DataVolume != nil {
+					pvc, pvcErr := volumeutil.GetPVC(ctx, r.Client, vm.Namespace, volume)
+					if pvcErr != nil {
+						return nil, fmt.Errorf("failed to get PVC for DataVolume %s: %w", volume.Name, pvcErr)
+					}
+					if pvc != nil && pvc.Status.Phase != corev1.ClaimPending {
+						return nil, reconcileError{Result: ctrl.Result{RequeueAfter: time.Minute}}
+					}
+				} else {
+					return nil, reconcileError{Result: ctrl.Result{RequeueAfter: time.Minute}}
+				}
 			}
 
 			isBlock, err := volumeutil.IsBlock(ctx, r.Client, vm.Namespace, volume)

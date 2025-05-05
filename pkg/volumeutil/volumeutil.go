@@ -14,7 +14,7 @@ import (
 )
 
 func IsBlock(ctx context.Context, c client.Client, namespace string, volume virtv1alpha1.Volume) (bool, error) {
-	pvc, err := getPVC(ctx, c, namespace, volume)
+	pvc, err := GetPVC(ctx, c, namespace, volume)
 	if err != nil {
 		return false, err
 	}
@@ -28,7 +28,7 @@ func IsReady(ctx context.Context, c client.Client, namespace string, volume virt
 	if volume.DataVolume == nil {
 		return true, nil
 	}
-	pvc, err := getPVC(ctx, c, namespace, volume)
+	pvc, err := GetPVC(ctx, c, namespace, volume)
 	if err != nil {
 		return false, err
 	}
@@ -51,7 +51,7 @@ func IsReady(ctx context.Context, c client.Client, namespace string, volume virt
 	return cdiv1beta1.IsPopulated(pvc, getDataVolumeFunc)
 }
 
-func getPVC(ctx context.Context, c client.Client, namespace string, volume virtv1alpha1.Volume) (*corev1.PersistentVolumeClaim, error) {
+func GetPVC(ctx context.Context, c client.Client, namespace string, volume virtv1alpha1.Volume) (*corev1.PersistentVolumeClaim, error) {
 	var pvcName string
 	if volume.PersistentVolumeClaim != nil {
 		pvcName = volume.PersistentVolumeClaim.ClaimName
