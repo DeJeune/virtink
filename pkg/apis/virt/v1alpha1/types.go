@@ -55,6 +55,8 @@ type Instance struct {
 	CPU         CPU          `json:"cpu,omitempty"`
 	Memory      Memory       `json:"memory,omitempty"`
 	Kernel      *Kernel      `json:"kernel,omitempty"`
+	Console     *Console     `json:"console,omitempty"`
+	Serial      *Console     `json:"serial,omitempty"`
 	Disks       []Disk       `json:"disks,omitempty"`
 	FileSystems []FileSystem `json:"fileSystems,omitempty"`
 	Interfaces  []Interface  `json:"interfaces,omitempty"`
@@ -81,6 +83,13 @@ type Kernel struct {
 	Image           string            `json:"image"`
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 	Cmdline         string            `json:"cmdline"`
+}
+
+type Console struct {
+	Mode   string `json:"mode,omitempty"`
+	File   string `json:"file,omitempty"`
+	Socket string `json:"socket,omitempty"`
+	IOMMU  bool   `json:"iommu,omitempty"`
 }
 
 type Disk struct {

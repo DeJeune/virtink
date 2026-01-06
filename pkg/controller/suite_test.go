@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	virtv1alpha1 "github.com/DeJeune/virtink/pkg/apis/virt/v1alpha1"
 	"github.com/DeJeune/virtink/pkg/controller/expectations"
@@ -77,6 +78,9 @@ var _ = BeforeSuite(func() {
 		Scheme:           scheme.Scheme,
 		LeaderElection:   false,
 		LeaderElectionID: "virtink-test-leader-election",
+		Metrics: ctrlmetrics.Options{
+			BindAddress: "0",
+		},
 	})
 	Expect(err).ToNot(HaveOccurred())
 

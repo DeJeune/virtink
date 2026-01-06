@@ -97,6 +97,23 @@ func buildVMConfig(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*cloud
 		vmConfig.Payload.Kernel = "/var/lib/cloud-hypervisor/CLOUDHV_EFI.fd"
 	}
 
+	if vm.Spec.Instance.Console != nil {
+		vmConfig.Console = &cloudhypervisor.ConsoleConfig{
+			Mode:   vm.Spec.Instance.Console.Mode,
+			File:   vm.Spec.Instance.Console.File,
+			Socket: vm.Spec.Instance.Console.Socket,
+			Iommu:  vm.Spec.Instance.Console.IOMMU,
+		}
+	}
+	if vm.Spec.Instance.Serial != nil {
+		vmConfig.Serial = &cloudhypervisor.ConsoleConfig{
+			Mode:   vm.Spec.Instance.Serial.Mode,
+			File:   vm.Spec.Instance.Serial.File,
+			Socket: vm.Spec.Instance.Serial.Socket,
+			Iommu:  vm.Spec.Instance.Serial.IOMMU,
+		}
+	}
+
 	if vm.Spec.Instance.Kernel != nil {
 		vmConfig.Payload.Kernel = "/mnt/virtink-kernel/vmlinux"
 		vmConfig.Payload.Cmdline = vm.Spec.Instance.Kernel.Cmdline

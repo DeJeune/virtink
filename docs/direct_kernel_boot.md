@@ -16,6 +16,8 @@ spec:
     kernel:
       image: smartxworks/virtink-kernel-5.15.12
       cmdline: "console=ttyS0 root=/dev/vda rw"
+    serial:
+      mode: Tty
     disks:
       - name: ubuntu
   volumes:
@@ -58,6 +60,8 @@ spec:
     kernel:
       image: smartxworks/virtink-kernel-5.15.12
       cmdline: "console=ttyS0 root=/dev/vda1 rw"
+    serial:
+      mode: Tty
     disks:
       - name: ubuntu
   volumes:

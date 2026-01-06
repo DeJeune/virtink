@@ -1062,6 +1062,17 @@ spec:
                         type: object
                       instance:
                         properties:
+                          console:
+                            properties:
+                              file:
+                                type: string
+                              iommu:
+                                type: boolean
+                              mode:
+                                type: string
+                              socket:
+                                type: string
+                            type: object
                           cpu:
                             properties:
                               coresPerSocket:
@@ -1153,6 +1164,17 @@ spec:
                                 - type: string
                                 pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                 x-kubernetes-int-or-string: true
+                            type: object
+                          serial:
+                            properties:
+                              file:
+                                type: string
+                              iommu:
+                                type: boolean
+                              mode:
+                                type: string
+                              socket:
+                                type: string
                             type: object
                         type: object
                       livenessProbe:
