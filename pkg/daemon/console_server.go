@@ -101,6 +101,19 @@ func (s *ConsoleServer) handleConsole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Unix socket path length limit is 108 bytes on Linux.
+	// The kubelet pod volume path can exceed this limit.
+	// Create a temporary symlink with a shorter path to work around this.
+	dialPath := socketPath
+	if len(socketPath) > 100 {
+		tmpLink := filepath.Join("/tmp", fmt.Sprintf("serial-%s.sock", vm.Status.VMPodUID[:8]))
+		_ = os.Remove(tmpLink) // Remove any stale symlink
+		if err := os.Symlink(socketPath, tmpLink); err == nil {
+			dialPath = tmpLink
+			defer os.Remove(tmpLink)
+		}
+	}
+
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(_ *http.Request) bool { return true },
 	}
@@ -110,7 +123,7 @@ func (s *ConsoleServer) handleConsole(w http.ResponseWriter, r *http.Request) {
 	}
 	defer wsConn.Close()
 
-	unixConn, err := net.Dial("unix", socketPath)
+	unixConn, err := net.Dial("unix", dialPath)
 	if err != nil {
 		_ = wsConn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("dial serial socket: %v", err)))
 		return
