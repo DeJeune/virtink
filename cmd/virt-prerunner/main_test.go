@@ -73,3 +73,26 @@ func TestBuildVMConfigConsoleSerialOverride(t *testing.T) {
 	require.Equal(t, vm.Spec.Instance.Serial.Socket, vmConfig.Serial.Socket)
 	require.Equal(t, vm.Spec.Instance.Serial.IOMMU, vmConfig.Serial.Iommu)
 }
+
+func TestBuildVMConfigSerialDefaultsToSocket(t *testing.T) {
+	vm := &virtv1alpha1.VirtualMachine{
+		Spec: virtv1alpha1.VirtualMachineSpec{
+			Instance: virtv1alpha1.Instance{
+				CPU: virtv1alpha1.CPU{
+					Sockets:        1,
+					CoresPerSocket: 1,
+				},
+				Memory: virtv1alpha1.Memory{
+					Size: resource.MustParse("1Gi"),
+				},
+				Serial: &virtv1alpha1.Console{},
+			},
+		},
+	}
+
+	vmConfig, err := buildVMConfig(context.Background(), vm)
+	require.NoError(t, err)
+	require.NotNil(t, vmConfig.Serial)
+	require.Equal(t, "Socket", vmConfig.Serial.Mode)
+	require.Equal(t, "/var/run/virtink/serial.sock", vmConfig.Serial.Socket)
+}

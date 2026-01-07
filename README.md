@@ -53,7 +53,7 @@ Hardware with virtualization support is required. You should check if `/dev/kvm`
 Install all Virtink components:
 
 ```bash
-kubectl apply -f https://github.com/smartxworks/virtink/releases/download/v0.13.0/virtink.yaml
+kubectl apply -f https://github.com/smartxworks/virtink/releases/download/v0.18.6/virtink.yaml
 ```
 
 Once you have deployed Virtink, you can [create your virtual machines](#create-a-vm).
@@ -132,6 +132,10 @@ kubectl patch vm $VM_NAME --subresource=status --type=merge -p "{\"status\":{\"p
 ```
 
 You can also `Shutdown`, `Reset`, `Reboot` or `Pause` a running VM, or `Resume` a paused one. To start a powered-off VM, you can `PowerOn` it.
+
+### Access the VM (via Console)
+
+Virtink exposes a lightweight console endpoint from `virt-daemon`. See `docs/console.md` for details.
 
 ## Demo Recording
 

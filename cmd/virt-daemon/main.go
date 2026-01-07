@@ -32,8 +32,10 @@ func init() {
 func main() {
 	var metricsAddr string
 	var probeAddr string
+	var consoleAddr string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(&consoleAddr, "console-bind-address", ":8082", "The address the console endpoint binds to.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -75,6 +77,11 @@ func main() {
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
+	}
+
+	if err := mgr.Add(daemon.NewConsoleServer(mgr.GetClient(), os.Getenv("NODE_NAME"), consoleAddr)); err != nil {
+		setupLog.Error(err, "unable to start console server")
 		os.Exit(1)
 	}
 

@@ -30,6 +30,10 @@ spec:
                   fieldPath: status.podIP
           args:
             - --zap-time-encoding=iso8601
+            - --console-bind-address=:8082
+          ports:
+            - name: console
+              containerPort: 8082
           volumeMounts:
             - name: kubelet-pods
               mountPath: /var/lib/kubelet/pods

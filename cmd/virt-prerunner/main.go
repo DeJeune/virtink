@@ -106,10 +106,18 @@ func buildVMConfig(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*cloud
 		}
 	}
 	if vm.Spec.Instance.Serial != nil {
+		serialMode := vm.Spec.Instance.Serial.Mode
+		serialSocket := vm.Spec.Instance.Serial.Socket
+		if serialSocket == "" {
+			serialSocket = "/var/run/virtink/serial.sock"
+		}
+		if serialMode == "" {
+			serialMode = "Socket"
+		}
 		vmConfig.Serial = &cloudhypervisor.ConsoleConfig{
-			Mode:   vm.Spec.Instance.Serial.Mode,
+			Mode:   serialMode,
 			File:   vm.Spec.Instance.Serial.File,
-			Socket: vm.Spec.Instance.Serial.Socket,
+			Socket: serialSocket,
 			Iommu:  vm.Spec.Instance.Serial.IOMMU,
 		}
 	}
