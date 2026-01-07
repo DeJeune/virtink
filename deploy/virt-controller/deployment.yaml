@@ -19,12 +19,28 @@ spec:
           args:
             - --zap-time-encoding=iso8601
             - --leader-elect
+            - --enable-apiserver=true
+            - --secure-port=8443
+          ports:
+            - name: webhook
+              containerPort: 9443
+              protocol: TCP
+            - name: api
+              containerPort: 8443
+              protocol: TCP
           volumeMounts:
             - name: cert
               mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+            - name: apiserver-cert
+              mountPath: /var/run/virtink/serving-cert
               readOnly: true
       volumes:
         - name: cert
           secret:
             secretName: virt-controller-cert
+            defaultMode: 0644
+        - name: apiserver-cert
+          secret:
+            secretName: virt-controller-api-cert
             defaultMode: 0644

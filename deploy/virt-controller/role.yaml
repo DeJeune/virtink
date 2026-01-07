@@ -20,6 +20,13 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - pods/proxy
+  verbs:
+  - get
+  - create
+- apiGroups:
+  - ""
+  resources:
   - events
   verbs:
   - create

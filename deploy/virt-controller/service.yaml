@@ -7,5 +7,9 @@ spec:
   selector:
     name: virt-controller
   ports:
-    - port: 443
+    - name: webhook
+      port: 443
       targetPort: 9443
+    - name: api
+      port: 8443
+      targetPort: 8443

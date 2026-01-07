@@ -1,0 +1,17 @@
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.subresources.virt.virtink.smartx.com
+  labels:
+    app.kubernetes.io/name: virt-controller
+    app.kubernetes.io/component: apiserver
+spec:
+  group: subresources.virt.virtink.smartx.com
+  version: v1alpha1
+  service:
+    name: virt-controller
+    namespace: virtink-system
+    port: 8443
+  insecureSkipTLSVerify: true  # TODO: Set to false when using proper certificates
+  groupPriorityMinimum: 1000
+  versionPriority: 15

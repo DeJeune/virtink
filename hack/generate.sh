@@ -9,6 +9,11 @@ bash $GOPATH/src/k8s.io/code-generator/generate-groups.sh "deepcopy,client,infor
   virt:v1alpha1 \
   --go-header-file ./hack/boilerplate.go.txt
 
+bash $GOPATH/src/k8s.io/code-generator/generate-groups.sh "deepcopy" \
+  github.com/DeJeune/virtink/pkg/generated github.com/DeJeune/virtink/pkg/apis \
+  subresources:v1alpha1 \
+  --go-header-file ./hack/boilerplate.go.txt
+
 controller-gen paths=./pkg/apis/... crd output:crd:artifacts:config=deploy/crd
 controller-gen paths=./cmd/virt-controller/... paths=./pkg/controller/... rbac:roleName=virt-controller output:rbac:artifacts:config=deploy/virt-controller webhook output:webhook:artifacts:config=deploy/virt-controller
 controller-gen paths=./cmd/virt-daemon/... paths=./pkg/daemon/... rbac:roleName=virt-daemon output:rbac:artifacts:config=deploy/virt-daemon

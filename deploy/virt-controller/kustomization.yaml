@@ -7,6 +7,8 @@ resources:
   - service.yaml
   - cert.yaml
   - cert-issuer.yaml
+  - api-cert.yaml
+  - apiservice.yaml
 
 patchesStrategicMerge:
   - manifests-patch.yaml
