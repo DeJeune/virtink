@@ -206,8 +206,11 @@ func buildVMConfig(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*cloud
 			return nil, fmt.Errorf("create virtiofsd socket dir: %s", err)
 		}
 
+		// Check Virtink Volumes first
+		found := false
 		for _, volume := range vm.Spec.Volumes {
 			if volume.Name == fs.Name {
+				found = true
 				socketPath := fmt.Sprintf("/var/run/virtink/virtiofsd/%s.sock", volume.Name)
 				if err := exec.Command("/usr/lib/qemu/virtiofsd", "--socket-path="+socketPath, "-o", "source=/mnt/"+volume.Name, "-o", "sandbox=chroot").Start(); err != nil {
 					return nil, fmt.Errorf("start virtiofsd: %s", err)
@@ -222,6 +225,27 @@ func buildVMConfig(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*cloud
 				}
 				vmConfig.Fs = append(vmConfig.Fs, &fsConfig)
 				break
+			}
+		}
+
+		// If not found in Volumes, check if directory exists (SidecarVolume case)
+		// SidecarVolumes are mounted to /mnt/<name> by vm_controller when used with FileSystems
+		if !found {
+			sourcePath := "/mnt/" + fs.Name
+			if _, err := os.Stat(sourcePath); err == nil {
+				socketPath := fmt.Sprintf("/var/run/virtink/virtiofsd/%s.sock", fs.Name)
+				if err := exec.Command("/usr/lib/qemu/virtiofsd", "--socket-path="+socketPath, "-o", "source="+sourcePath, "-o", "sandbox=chroot").Start(); err != nil {
+					return nil, fmt.Errorf("start virtiofsd for sidecar volume: %s", err)
+				}
+
+				fsConfig := cloudhypervisor.FsConfig{
+					Id:        fs.Name,
+					Socket:    socketPath,
+					Tag:       fs.Name,
+					NumQueues: 1,
+					QueueSize: 1024,
+				}
+				vmConfig.Fs = append(vmConfig.Fs, &fsConfig)
 			}
 		}
 	}

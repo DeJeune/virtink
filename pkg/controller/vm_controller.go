@@ -824,6 +824,22 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 		vmPod.Spec.Containers = append(vmPod.Spec.Containers, vm.Spec.Sidecars...)
 	}
 
+	// Mount sidecar volumes that are used by FileSystems to cloud-hypervisor container
+	// This allows virt-prerunner to start virtiofsd with access to the shared directory
+	sidecarVolumeNames := make(map[string]bool)
+	for _, sv := range vm.Spec.SidecarVolumes {
+		sidecarVolumeNames[sv.Name] = true
+	}
+	for _, fs := range vm.Spec.Instance.FileSystems {
+		if sidecarVolumeNames[fs.Name] {
+			vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts,
+				corev1.VolumeMount{
+					Name:      fs.Name,
+					MountPath: "/mnt/" + fs.Name,
+				})
+		}
+	}
+
 	return &vmPod, nil
 }
 
