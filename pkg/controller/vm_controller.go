@@ -814,6 +814,16 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 		Value: base64.StdEncoding.EncodeToString(vmJSON),
 	})
 
+	// Add sidecar volumes
+	if len(vm.Spec.SidecarVolumes) > 0 {
+		vmPod.Spec.Volumes = append(vmPod.Spec.Volumes, vm.Spec.SidecarVolumes...)
+	}
+
+	// Add sidecar containers
+	if len(vm.Spec.Sidecars) > 0 {
+		vmPod.Spec.Containers = append(vmPod.Spec.Containers, vm.Spec.Sidecars...)
+	}
+
 	return &vmPod, nil
 }
 
