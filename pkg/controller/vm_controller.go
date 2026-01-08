@@ -662,6 +662,22 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 			})
 		}
 
+		// For bridge binding, set arp_ignore=1 to allow ARP requests to be forwarded
+		// to VM instead of being answered by the dummy interface. This enables direct
+		// SSH connectivity to the VM's Pod IP address.
+		// Use unique name with index to avoid duplicate container names when multiple interfaces exist.
+		if iface.Bridge != nil {
+			vmPod.Spec.InitContainers = append(vmPod.Spec.InitContainers, corev1.Container{
+				Name:      fmt.Sprintf("enable-arp-ignore-%d", i),
+				Image:     r.PrerunnerImageName,
+				Resources: vm.Spec.Resources,
+				SecurityContext: &corev1.SecurityContext{
+					Privileged: &[]bool{true}[0],
+				},
+				Command: []string{"sysctl", "-w", "net.ipv4.conf.all.arp_ignore=1"},
+			})
+		}
+
 		switch {
 		case network.Multus != nil:
 			networks = append(networks, netv1.NetworkSelectionElement{
